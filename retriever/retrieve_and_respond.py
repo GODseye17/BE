@@ -2,21 +2,18 @@ import faiss
 import numpy as np
 import json
 import subprocess
-import google.generativeai as genai  # Google Gemini
 import requests
 from fastapi import HTTPException
-
-#from langchain_community.embeddings import HuggingFaceEmbeddings
-
-#from langchain_huggingface import HuggingFaceEmbeddings
 from sentence_transformers import SentenceTransformer
+from transformers import LlamaForCausalLM, LlamaTokenizer
 
-
+# 🔹 Initialize SentenceTransformer for Embeddings
 embeddings = SentenceTransformer("models/all-MiniLM-L6-v2")
 
-# 🔹 Initialize Google Gemini API (replace YOUR_API_KEY)
-genai.configure(api_key="AIzaSyA-AfbLuDw6cJbWkU3w8ADhNfXj6DGEQ0Y")
-model = genai.GenerativeModel("gemini-1.5-flash")
+# 🔹 Load Llama model and tokenizer
+llama_model_path = "meta-llama/Meta-Llama-3.1-8B-Instruct"  # Update this to the correct Llama model path
+tokenizer = LlamaTokenizer.from_pretrained(llama_model_path)
+model = LlamaForCausalLM.from_pretrained(llama_model_path)
 
 def fetch_pubmed_articles(term):
     # 🔹 API Endpoints
@@ -57,19 +54,17 @@ def fetch_pubmed_articles(term):
 
     return articles
 
-# def load_dataset(name):
-#     try:
-#         index = faiss.read_index(f"datasets/{name}/news_index_{name}.faiss")
-#         with open(f"datasets/{name}/scraped_data_{name}.json", "r") as f:
-#             articles = json.load(f)
-#         return index, articles
-#     except Exception as e:
-#         print(f"⚠️ Could not load {name} dataset:", e)
-#         return None, []
+def load_dataset():
+    # Load PubMed dataset from saved JSON
+    try:
+        with open("datasets/pubmed/scraped_data_pubmed.json", "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Dataset not found")
 
 # 🔹 Query Handler
 def answer_query(query, source="both"):
-    print("Fetch fresh articles for:", query)
+    print("Fetching fresh articles for:", query)
     articles = fetch_pubmed_articles(query)
     abstracts = [article["abstract"] for article in articles]
     
@@ -99,13 +94,16 @@ def answer_query(query, source="both"):
     context = "\n\n".join(selected_abstracts)
     prompt = f"Based on the following abstracts, answer this question:\n\n{context}\n\nQ: {query}\nA:"
 
-    response = model.generate_content(prompt)
-    return response.text
+    # Use Llama model to generate a response
+    inputs = tokenizer(prompt, return_tensors="pt")
+    outputs = model.generate(**inputs, max_length=200)
 
+    # Decode the output
+    response_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    return response_text
 
 # 🔹 CLI Usage
 if __name__ == "__main__":
-    #print("Choose dataset: [pubmed / scopus / both]")
     selected = "pubmed"
 
     query = input("Enter your query:\n> ")

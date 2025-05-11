@@ -17,3 +17,5 @@ aiohttp
 certifi
 supabase
 httpx
+transformers
+torch

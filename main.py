@@ -1,157 +1,75 @@
-# from fastapi import FastAPI, HTTPException
-# from pydantic import BaseModel
-# from fastapi.middleware.cors import CORSMiddleware
-# import subprocess
-# from retriever.retrieve_and_respond import answer_query
-
-# app = FastAPI()
-
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["https://www.vivum.app"],  # Replace with ["https://your-frontend.vercel.app"]
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
-
-# class QueryRequest(BaseModel):
-#     query: str
-
-# @app.get("/")
-# def root():
-#     return {"message": "API is running!"}
-
-# @app.get("/ping")
-# def ping():
-#     return {"status": "alive"}
-
-# @app.post("/query")
-# def get_query_response(request: QueryRequest):
-#     try:
-#         # Call the same answer_query function from your script
-#         response = answer_query(request.query, "pubmed")  # If selected isn't used, keep it None
-#         return {"response": response}
-#     except subprocess.CalledProcessError as e:
-#         raise HTTPException(status_code=500, detail=f"Error during subprocess: {e}")
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-
-# if __name__ == "__main__":
-#     port = int(os.environ.get("PORT", 8000))
-#     uvicorn.run("main:app", host="0.0.0.0", port=port)
-# from fastapi import FastAPI, HTTPException, BackgroundTasks
-# from pydantic import BaseModel
-# from fastapi.middleware.cors import CORSMiddleware
-# import subprocess
-# from retriever.retrieve_and_respond import answer_query
-
-# app = FastAPI()
-
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["https://www.vivum.app"],  # Replace with your frontend domain
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
-
-# class QueryRequest(BaseModel):
-#     query: str
-
-# responses_cache = {}  # TEMP cache to store results
-
-# @app.get("/")
-# def root():
-#     return {"message": "API is running!"}
-
-# @app.get("/ping")
-# def ping():
-#     return {"status": "alive"}
-
-# def process_query_background(query_text: str):
-#     try:
-#         response = answer_query(query_text, "pubmed")
-#         responses_cache[query_text] = response  # Save it
-#     except Exception as e:
-#         responses_cache[query_text] = f"Error: {str(e)}"
-
-# @app.post("/query")
-# def get_query_response(request: QueryRequest):
-#     try:
-#         # Call the same answer_query function from your script
-#         response = answer_query(request.query, "pubmed")  # If selected isn't used, keep it None
-#         return {"response": response}
-#     except subprocess.CalledProcessError as e:
-#         raise HTTPException(status_code=500, detail=f"Error during subprocess: {e}")
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-
-# if __name__ == "__main__":
-#     port = int(os.environ.get("PORT", 8000))
-#     import uvicorn
-#     uvicorn.run("main:app", host="0.0.0.0", port=port)
-from fastapi import FastAPI, HTTPException, BackgroundTasks, status
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-import os
-from typing import Dict, List, Optional
+from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+from langchain_core.callbacks.manager import CallbackManagerForLLMRun
+from langchain_core.language_models.llms import LLM
+from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.language_models.chat_models import BaseChatModel
+from typing import Any, Dict, List, Mapping, Optional
 import uuid
 import asyncio
-from contextlib import asynccontextmanager
 import logging
+import requests
 import time
+from contextlib import asynccontextmanager
 from supabase import create_client, Client
 import datetime
-import ssl
-import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
+import json
+import os
+from langchain.docstore.document import Document
 
-# Set up logging
+# LangChain imports
+from langchain_ollama import OllamaLLM
+# Community modules
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_community.document_loaders import PubMedLoader
+
+# Core modules (still under langchain)
+from langchain.chains import ConversationalRetrievalChain
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.memory import ConversationBufferMemory
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain.retrievers.document_compressors import LLMChainExtractor
+
+from langchain.prompts import PromptTemplate
+
+from together import Together
+
+
+
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+# Create a more constrained prompt that handles missing information better
+template = "Answer the following question: {question}"
+prompt = PromptTemplate(template=template, input_variables=["question"])
+
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Track active background tasks
-background_tasks_status = {}
 
 # Supabase setup
 supabase_url = "https://emefyicilkiaaqkbjsjy.supabase.co"
 supabase_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVtZWZ5aWNpbGtpYWFxa2Jqc2p5Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NTMzMzMxOCwiZXhwIjoyMDYwOTA5MzE4fQ.oQv782SBbK0VQPy6wuQS0oh1sfF9mcBE8dcR1J4W0SA"
 
-if not supabase_url or not supabase_key:
-    logger.error("Missing Supabase credentials. Set SUPABASE_URL and SUPABASE_KEY environment variables.")
-
-# Supabase client as a global variable
+# Global clients
 supabase: Optional[Client] = None
+llm = None
+embeddings = None
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup: Initialize Supabase client
-    global supabase
-    logger.info("Application startup: Initializing Supabase connection")
-    try:
-        supabase = create_client(supabase_url, supabase_key)
-        logger.info("Supabase connection established")
-    except Exception as e:
-        logger.error(f"Failed to initialize Supabase: {str(e)}")
-    
-    yield
-    
-    # Shutdown: No specific cleanup needed for Supabase client
-    logger.info("Application shutdown: Cleaning up resources")
+# Cache for conversation chains and vector stores
+topic_vectorstores = {}
+conversation_chains = {}
+background_tasks_status = {}
 
-app = FastAPI(lifespan=lifespan)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://www.vivum.app", "http://localhost:8081"],  # Add your frontend domain
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Max conversation count to prevent memory leaks
+MAX_CONVERSATIONS = 100
 
 class TopicRequest(BaseModel):
     topic: str
-    max_results: Optional[int] = 20  # Limit the number of results to prevent overload
+    max_results: Optional[int] = 20
 
 class QueryRequest(BaseModel):
     query: str
@@ -167,9 +85,286 @@ class ChatResponse(BaseModel):
     response: str
     conversation_id: str
 
-# Memory-efficient conversation cache with auto-expiry
-conversation_cache: Dict[str, Dict] = {}
-MAX_CONVERSATIONS = 1000  # Prevent memory leak by limiting total conversations
+
+def get_vectorstore_retriever(topic_id, query=None):
+ 
+    # Define the index path
+    index_path = f"vectorstores/{topic_id}/index.faiss"
+    
+    # Check if the FAISS index file exists
+    if not os.path.exists(index_path):
+        logger.error(f"FAISS index file not found at: {index_path}")
+        raise HTTPException(
+            status_code=404, 
+            detail=f"FAISS index file not found for topic {topic_id}. Please check the vectorstore creation process."
+        )
+    
+    # Load the FAISS index with proper error handling
+    try:
+        logger.info(f"Loading FAISS index file at: {index_path}")
+        db = FAISS.load_local(
+            f"vectorstores/{topic_id}", 
+            embeddings, 
+            allow_dangerous_deserialization=True
+        )
+    except Exception as e:
+        logger.error(f"Error loading FAISS index: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to load FAISS index: {str(e)}")
+    
+    
+    retriever = db.as_retriever(
+    search_type="similarity_score_threshold",
+    search_kwargs={
+        "score_threshold": 0.3,  # You can fine-tune between 0.3 – 0.7
+        "k": 4
+    }
+)
+    return retriever
+
+
+class TogetherChatModel(BaseChatModel):
+ 
+    
+    api_key: str
+    model: str = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
+    temperature: float = 0.7
+    max_tokens: int = 1024
+    streaming: bool = True
+    
+    @property
+    def _llm_type(self) -> str:
+        return "together_chat"
+    
+    def _generate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        try:
+            client = Together(api_key=self.api_key)
+            together_messages = []
+            
+            # Convert LangChain messages to Together format
+            for message in messages:
+                if isinstance(message, HumanMessage):
+                    together_messages.append({"role": "user", "content": message.content})
+                elif isinstance(message, AIMessage):
+                    together_messages.append({"role": "assistant", "content": message.content})
+                else:
+                    together_messages.append({"role": "system", "content": message.content})
+            
+            logger.info(f"Sending {len(together_messages)} messages to Together API")
+            
+            # Build request parameters
+            params = {
+                "model": self.model,
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+                **kwargs
+            }
+            
+            # Add stop sequences if provided
+            if stop:
+                params["stop"] = stop
+            
+            if self.streaming and run_manager:
+                text = ""
+                stream = client.chat.completions.create(
+                    messages=together_messages,
+                    stream=True,
+                    **params
+                )
+                
+                for chunk in stream:
+                    if chunk.choices and hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content:
+                        content = chunk.choices[0].delta.content
+                        text += content
+                        run_manager.on_llm_new_token(content)
+                
+                logger.info(f"Streaming response completed, total length: {len(text)}")
+                message = AIMessage(content=text)
+                logger.info(message)
+            else:
+                response = client.chat.completions.create(
+                    messages=together_messages,
+                    stream=False,
+                    **params
+                )
+                
+                text = response.choices[0].message.content
+                logger.info(f"Non-streaming response received, length: {len(text)}")
+                message = AIMessage(content=text)
+            
+            return ChatResult(generations=[ChatGeneration(message=message)])
+        
+        except Exception as e:
+            logger.error(f"Error in Together API call: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            message = AIMessage(content="I encountered an error while processing your request.")
+            return ChatResult(generations=[ChatGeneration(message=message)])
+    
+    def _agenerate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        """Async version not implemented, falls back to sync version."""
+        return self._generate(messages, stop, run_manager, **kwargs)
+
+    @property
+    def _identifying_params(self) -> Dict[str, Any]:
+        """Get the identifying parameters."""
+        return {
+            "model": self.model,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens
+        }
+
+
+class TogetherLLM(LLM):
+    """LLM for direct text completion with Together AI."""
+    
+    api_key: str
+    model: str = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
+    temperature: float = 0.7
+    max_tokens: int = 1024
+    streaming: bool = True
+    
+    @property
+    def _llm_type(self) -> str:
+        return "together_llm"
+    
+    def _call(
+        self,
+        prompt: str,
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> str:
+        try:
+            client = Together(api_key=self.api_key)
+            logger.info(f"Sending prompt to Together API (length: {len(prompt)})")
+            
+            # Build request parameters
+            params = {
+                "model": self.model,
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+                **kwargs
+            }
+            
+            # Add stop sequences if provided
+            if stop:
+                params["stop"] = stop
+            
+            if self.streaming and run_manager:
+                text = ""
+                # For LLM, we need to use chat format with a single user message
+                stream = client.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    stream=True,
+                    **params
+                )
+                
+                for chunk in stream:
+                    if hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content is not None:
+                        content = chunk.choices[0].delta.content
+                        text += content
+                        # Important: This is where we send tokens to the callback manager
+                        run_manager.on_llm_new_token(content)
+                
+                logger.info(f"Streaming response completed, total length: {len(text)}")
+                return text
+            else:
+                # For LLM, we need to use chat format with a single user message
+                response = client.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    stream=False,
+                    **params
+                )
+                
+                text = response.choices[0].message.content
+                logger.info(f"Non-streaming response received, length: {len(text)}")
+                return text
+        
+        except Exception as e:
+            logger.error(f"Error in Together API call: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return "I encountered an error while processing your request."
+
+    @property
+    def _identifying_params(self) -> Dict[str, Any]:
+        """Get the identifying parameters."""
+        return {
+            "model": self.model,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens
+        }
+
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Initialize connections and models
+    global supabase, llm, embeddings
+    logger.info("Starting application: Initializing connections and models")
+    
+    try:
+        # Initialize Supabase
+        supabase = create_client(supabase_url, supabase_key)
+        logger.info("Supabase connection established")
+        
+        # Initialize embedding model - HuggingFace for embeddings
+        logger.info("Loading embedding model")
+        embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        
+        # Initialize LLM - Using Llama hosted model
+        logger.info("Loading Llama model")
+        try:
+            # Using Ollama to serve Llama models - assumes Ollama is running locally
+            # You'd adapt this based on your deployment model
+        
+            # llm = OllamaLLM(
+            # model="llama3:latest",
+            # streaming=True,
+            # callbacks=[StreamingStdOutCallbackHandler()]  # Logs chunks to stdout
+            # )
+            llm = TogetherChatModel(
+            api_key="7d8e09c3ede29df9e06c6858304734f62ad95b458eb219fa3abf53ecef490e09",
+            model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+            temperature=0.5,
+            max_tokens=2048,
+            streaming=True
+        )
+            logger.info("LLM loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load LLM: {str(e)}")
+            # You might want to implement a fallback model here
+            
+            
+    except Exception as e:
+        logger.error(f"Startup error: {str(e)}")
+    
+    yield
+    
+    # Shutdown: Clean up resources
+    logger.info("Application shutdown: Cleaning up resources")
+
+app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://www.vivum.app", "http://localhost:8081"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 def root():
@@ -186,289 +381,127 @@ async def check_supabase_status():
             return {"status": "error", "message": f"Connection error: {str(e)}"}
     else:
         return {"status": "disconnected", "message": "Supabase client not initialized"}
-    
+
+@app.get("/model-status")
+async def check_model_status():
+    status = {
+        "embedding_model": "loaded" if embeddings is not None else "not loaded",
+        "llm": "loaded" if llm is not None else "not loaded"
+    }
+    return status
 
 @app.get("/ping")
 def ping():
     return {"status": "alive", "active_tasks": len(background_tasks_status)}
 
 async def fetch_pubmed_data(topic: str, topic_id: str, max_results: int):
-    """Fetch data from PubMed and store in Supabase"""
+    """Fetch PubMed articles and create vector store efficiently"""
     try:
-        logger.info(f"Fetching PubMed data for topic: {topic}, topic_id: {topic_id}")
-        
-        # PubMed API Endpoints
-        SEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-        DETAILS_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
-        
-        # Step 1: Get Article IDs
+        logger.info(f"🔍 Fetching PubMed articles for topic '{topic}' (max {max_results})")
+
+        # Step 1: Search PubMed for relevant article IDs
         search_params = {
             "db": "pubmed",
-            "term": topic,  # Use the provided topic as search term
+            "term": topic,
             "retmode": "json",
-            "retmax": max_results,  # Use the user-specified max_results
+            "retmax": max_results,
         }
-        
-        # Use aiohttp or httpx for async requests
-        import aiohttp
-        
-        articles = []
-        ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_context)) as session:
-            # Search for article IDs
-            async with session.get(SEARCH_URL, params=search_params) as response:
-                if response.status != 200:
-                    logger.error(f"Error searching PubMed: {response.status}")
-                    raise Exception(f"PubMed search API returned status {response.status}")
-                
-                data = await response.json()
-                article_ids = data.get("esearchresult", {}).get("idlist", [])
-                logger.info(f"Found {len(article_ids)} articles for topic: {topic}")
-                
-                # Step 2: Fetch details for each article
-                for article_id in article_ids:
-                    details_params = {
-                        "db": "pubmed",
-                        "id": article_id,
-                        "retmode": "xml",
-                        "rettype": "abstract",
-                    }
-                    
-                    # Add a small delay to avoid overwhelming the API
-                    await asyncio.sleep(0.2)
-                    
-                    async with session.get(DETAILS_URL, params=details_params) as details_response:
-                        if details_response.status != 200:
-                            logger.warning(f"Error fetching details for article {article_id}: {details_response.status}")
-                            continue
-                        
-                        # Parse the XML response to extract title, abstract, and authors
-                        import xml.etree.ElementTree as ET
-                        
-                        text_content = await details_response.text()
-                        
-                        try:
-                            # Parse XML
-                            root = ET.fromstring(text_content)
-                            
-                            # Extract title (may need adjustment based on actual XML structure)
-                            title_elem = root.find(".//ArticleTitle")
-                            title = title_elem.text if title_elem is not None else f"Article {article_id}"
-                            
-                            # Extract abstract
-                            abstract_text = ""
-                            abstract_elems = root.findall(".//AbstractText")
-                            if abstract_elems:
-                                for elem in abstract_elems:
-                                    # Check if there's a label
-                                    label = elem.get("Label")
-                                    if label:
-                                        abstract_text += f"{label}: {elem.text}\n"
-                                    else:
-                                        abstract_text += f"{elem.text}\n"
-                            else:
-                                abstract_text = "Abstract not available"
-                            
-                            # Extract authors
-                            authors = []
-                            author_elems = root.findall(".//Author")
-                            for author in author_elems:
-                                last_name = author.find("LastName")
-                                fore_name = author.find("ForeName")
-                                if last_name is not None and fore_name is not None:
-                                    authors.append(f"{last_name.text} {fore_name.text}")
-                                elif last_name is not None:
-                                    authors.append(last_name.text)
-                            
-                            authors_text = ", ".join(authors) if authors else "Unknown"
-                            
-                            # Create article object
-                            article = {
-                                "id": article_id,
-                                "title": title,
-                                "abstract": abstract_text,
-                                "authors": authors_text,
-                                "url": f"https://pubmed.ncbi.nlm.nih.gov/{article_id}/"
-                            }
-                            
-                            articles.append(article)
-                            
-                        except Exception as e:
-                            logger.error(f"Error parsing article {article_id}: {str(e)}")
-                            # Add basic info even if parsing failed
-                            articles.append({
-                                "id": article_id,
-                                "title": f"Article {article_id}",
-                                "abstract": "Error retrieving full article details",
-                                "authors": "Unknown",
-                                "url": f"https://pubmed.ncbi.nlm.nih.gov/{article_id}/"
-                            })
-        # Store data in Supabase
+        search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+        response = requests.get(search_url, params=search_params)
+        response.raise_for_status()
+
+        article_ids = response.json().get("esearchresult", {}).get("idlist", [])
+        if not article_ids:
+            logger.warning(f"⚠️ No articles found for topic '{topic}'")
+            return False
+
+        logger.info(f"✅ Found {len(article_ids)} articles. Fetching details...")
+
+        # Step 2: Fetch article details (batch fetch)
+        details_params = {
+            "db": "pubmed",
+            "id": ",".join(article_ids),
+            "retmode": "xml",
+        }
+        details_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+        details_response = requests.get(details_url, params=details_params)
+        details_response.raise_for_status()
+
+        # Step 3: Parse XML manually (lightweight)
+        from xml.etree import ElementTree as ET
+        root = ET.fromstring(details_response.content)
+
+        docs = []
+        articles_data = []
+        for article in root.findall(".//PubmedArticle"):
+            try:
+                pmid = article.findtext(".//PMID") or "unknown"
+                title = article.findtext(".//ArticleTitle") or "No Title"
+                abstract = " ".join([elem.text or "" for elem in article.findall(".//AbstractText")]).strip()
+                authors_list = article.findall(".//Author")
+                authors = "; ".join(
+                    [f"{a.findtext('LastName', '')} {a.findtext('ForeName', '')}".strip() for a in authors_list if a.findtext('LastName')]
+                ) or "Unknown Authors"
+
+                page_content = f"Title: {title}\nAbstract: {abstract}"
+                metadata = {
+                    "pubmed_id": pmid,
+                    "title": title,
+                    "authors": authors,
+                    "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+                }
+
+                # For vector store
+                docs.append(Document(page_content=page_content, metadata=metadata))
+
+                # For Supabase (optional)
+                articles_data.append({
+                    "topic_id": topic_id,
+                    "pubmed_id": pmid,
+                    "title": title,
+                    "abstract": abstract,
+                    "authors": authors,
+                    "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+                })
+            except Exception as parse_err:
+                logger.warning(f"⚠️ Skipping malformed article: {parse_err}")
+
+        logger.info(f"📄 Processed {len(docs)} valid articles.")
+
+        # Step 4: Split documents
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+        split_docs = text_splitter.split_documents(docs)
+
+        # Step 5: Create and save vector store
+        vector_store = FAISS.from_documents(split_docs, embeddings)
+        vector_store.save_local(f"vectorstores/{topic_id}")
+
+        logger.info(f"✅ Vector store created and saved for topic_id '{topic_id}'")
+
+        # Step 6 (optional): Store metadata in Supabase
         if supabase:
-            # Update the existing topic record instead of inserting a new one
             supabase.table("topics").update({
                 "status": "completed"
             }).eq("id", topic_id).execute()
-            
-            # Then store articles
-            for article in articles:
-                supabase.table("articles").insert({
-                    "topic_id": topic_id,
-                    "pubmed_id": article["id"],
-                    "title": article["title"],
-                    "abstract": article["abstract"],
-                    "authors": article["authors"],
-                    "url": article["url"]
-                }).execute()
-                
-            logger.info(f"Stored {len(articles)} articles for topic_id: {topic_id}")
-            return True
-        else:
-            logger.error("Supabase client not initialized")
-            return False
-            
+
+            supabase.table("articles").insert(articles_data).execute()
+            logger.info(f"✅ Stored {len(articles_data)} articles metadata to Supabase.")
+
+        return True
+
     except Exception as e:
-        logger.error(f"Error fetching PubMed data: {str(e)}")
-        
-        # Update status in Supabase if possible
+        logger.error(f"❌ Error in fetch_and_create_vectorstore: {str(e)}")
         if supabase:
             supabase.table("topics").update({"status": f"error: {str(e)}", "article_count": 0}).eq("id", topic_id).execute()
-        
         return False
 
-def check_topic_fetch_status(topic_id: str):
-    """Check if data fetching is complete for a topic"""
-    # First check our internal background task status
-    if topic_id in background_tasks_status:
-        return background_tasks_status[topic_id]
-    
-    # Then check in Supabase
-    if supabase:
-        try:
-            result = supabase.table("topics").select("status").eq("id", topic_id).execute()
-            if result.data and len(result.data) > 0:
-                return result.data[0]["status"]
-            return "not_found"
-        except Exception as e:
-            logger.error(f"Error checking topic status: {str(e)}")
-            return f"error: {str(e)}"
-    else:
-        logger.error("Supabase client not initialized")
-        return "database_error"
-
-async def answer_from_stored_data(query: str, topic_id: str, conversation_context=None):
-    """Retrieve data from Supabase and generate an answer using Gemini"""
-    try:
-        logger.info(f"Generating answer for query about topic_id: {topic_id}")
-        
-        if not supabase:
-            return "Unable to connect to the database."
-        
-        # Fetch relevant articles from Supabase
-        result = supabase.table("articles").select("*").eq("topic_id", topic_id).execute()
-        
-        if not result.data or len(result.data) == 0:
-            return "No data found for this topic."
-        
-        articles = result.data
-        logger.info(f"Retrieved {len(articles)} articles for topic_id: {topic_id}")
-        
-        # Prepare context for answering
-        context = ""
-        # Add all articles (up to 10 to keep context size reasonable)
-        for i, article in enumerate(articles[:10]):
-            context += f"Article {i+1}: {article['title']}\n"
-            context += f"Abstract: {article['abstract']}\n"
-            context += f"Authors: {article['authors']}\n"
-            context += f"URL: {article.get('url', '')}\n\n"
-        
-        # Import Gemini libraries
-        import google.generativeai as genai
-        from google.generativeai.types import HarmCategory, HarmBlockThreshold
-        
-        # Set up the API
-        
-        genai.configure(api_key="AIzaSyA-AfbLuDw6cJbWkU3w8ADhNfXj6DGEQ0Y")
-        
-        # Configure the model
-        generation_config = {
-            "temperature": 0.7,
-            "top_p": 0.95,
-            "top_k": 40,
-            "max_output_tokens": 1024,
-        }
-        
-        safety_settings = {
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-        }
-        
-        # Create a Gemini model instance
-        model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            generation_config=generation_config,
-            safety_settings=safety_settings
-        )
-        
-        # First-time query vs follow-up determination
-        is_first_query = not conversation_context or conversation_context == ""
-        
-        # Construct the prompt
-        if is_first_query:
-            prompt = """You are a medical research assistant that creates literature surveys based on PubMed articles.
-            Analyze the articles provided and create a comprehensive literature survey on the topic.
-            Your response should:
-            1. Summarize the key findings across all articles
-            2. Identify common themes and research directions
-            3. Highlight any contradictions or gaps in the research
-            4. Include relevant citations to the specific articles
-            Be concise but thorough, and format your response in a structured way with clear headings.
-            
-            Based on these PubMed articles, create a literature survey:
-            
-            """
-            prompt += f"{context}\n\nTopic: {query}"
-        else:
-            prompt = """You are a medical research assistant that answers questions based on PubMed articles.
-            Use only the information provided in the articles to answer questions.
-            Cite specific articles when providing information.
-            Be concise, direct, and helpful.
-            
-            Articles:
-            """
-            
-            prompt += f"{context}\n\nPrevious conversation:\n{conversation_context}\n\nQuestion: {query}"
-        
-        # Generate the response using the combined prompt
-        response = model.generate_content(prompt)
-        
-        # Extract the text from the response
-        answer = response.text if hasattr(response, "text") else str(response)
-        
-        # Log the query to Supabase for analysis
-        supabase.table("queries").insert({
-            "topic_id": topic_id,
-            "query": query,
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
-        }).execute()
-        
-        return answer
-        
-    except Exception as e:
-        logger.error(f"Error generating answer: {str(e)}")
-        return f"I'm sorry, there was an error processing your query: {str(e)}"
-
 async def fetch_data_background(topic: str, topic_id: str, max_results: int):
-    """Background task to fetch data from PubMed and store in Supabase"""
+    """Background task to fetch data from PubMed"""
     try:
         background_tasks_status[topic_id] = "processing"
         
-        # Set timeout for the fetch operation to prevent hanging
-        fetch_timeout = 60  # seconds
+        # Set timeout for the fetch operation
+        fetch_timeout = 120  # seconds
         try:
             # Run with timeout
             success = await asyncio.wait_for(
@@ -501,6 +534,26 @@ async def fetch_data_background(topic: str, topic_id: str, max_results: int):
         if topic_id in background_tasks_status:
             del background_tasks_status[topic_id]
 
+def check_topic_fetch_status(topic_id: str):
+    """Check if data fetching is complete for a topic"""
+    # First check our internal background task status
+    if topic_id in background_tasks_status:
+        return background_tasks_status[topic_id]
+    
+    # Then check in Supabase
+    if supabase:
+        try:
+            result = supabase.table("topics").select("status").eq("id", topic_id).execute()
+            if result.data and len(result.data) > 0:
+                return result.data[0]["status"]
+            return "not_found"
+        except Exception as e:
+            logger.error(f"Error checking topic status: {str(e)}")
+            return f"error: {str(e)}"
+    else:
+        logger.error("Supabase client not initialized")
+        return "database_error"
+
 @app.post("/fetch-topic-data", response_model=TopicResponse)
 async def fetch_topic_data(request: TopicRequest, background_tasks: BackgroundTasks):
     """
@@ -514,13 +567,6 @@ async def fetch_topic_data(request: TopicRequest, background_tasks: BackgroundTa
                 status_code=503,
                 detail="Database connection not available"
             )
-        
-        # Limit concurrent tasks to prevent overload
-        # if len(background_tasks_status) >= 5:  # Adjust based on Railway resources
-        #     raise HTTPException(
-        #         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-        #         detail="Too many processing tasks. Please try again later."
-        #     )
         
         # Generate a unique topic ID
         topic_id = str(uuid.uuid4())
@@ -552,124 +598,198 @@ async def fetch_topic_data(request: TopicRequest, background_tasks: BackgroundTa
         logger.error(f"Error initiating fetch: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-def get_conversation_history(conversation_id: str) -> tuple:
-    """Get conversation history or create a new one"""
-    # Clean up old conversations if needed
-    if len(conversation_cache) > MAX_CONVERSATIONS:
-        # Remove oldest conversations (simple approach)
-        oldest_keys = sorted(conversation_cache.keys(), 
-                            key=lambda k: conversation_cache[k].get("last_access", 0))[:100]
-        for key in oldest_keys:
-            del conversation_cache[key]
+def get_or_create_chain(topic_id: str, conversation_id: str , query:str):
+    """Get or create a conversation chain for this topic and conversation"""
+    chain_key = f"{topic_id}:{conversation_id}"
+   
+    if chain_key in conversation_chains:
+        return conversation_chains[chain_key]
     
-    current_time = time.time()
+    # # Check if vector store exists for this topic
+    # if topic_id not in topic_vectorstores:
+    #     # Try to load from Supabase and create vector store
+    #     try:
+    #         if supabase:
+    #             result = supabase.table("articles").select("*").eq("topic_id", topic_id).execute()
+    #             if result.data:
+    #                 # Convert to documents
+    #                 docs = []
+    #                 for article in result.data:
+    #                     doc_content = f"Title: {article['title']}\nAbstract: {article['abstract']}"
+    #                     metadata = {
+    #                         "pubmed_id": article["pubmed_id"],
+    #                         "title": article["title"],
+    #                         "authors": article["authors"],
+    #                         "url": article["url"]
+    #                     }
+    #                     docs.append({"page_content": doc_content, "metadata": metadata})
+                    
+    #                 # Create vector store
+    #                 vector_store = FAISS.from_documents(docs, embeddings)
+    #                 vector_store.save_local(f"vectorstores/{topic_id}")
+    #                 topic_vectorstores[topic_id] = vector_store
+    #             else:
+    #                 return None
+    #         else:
+    #             return None
+    #     except Exception as e:
+    #         logger.error(f"Error loading articles: {str(e)}")
+    #         return None
     
-    if not conversation_id or conversation_id not in conversation_cache:
-        # Create a new conversation history
-        new_id = str(uuid.uuid4())
-        conversation_cache[new_id] = {
-            "messages": [],
-            "last_access": current_time
-        }
-        return new_id, []
+    # # Get the vector store
+    # vector_store = topic_vectorstores[topic_id]
     
-    # Update last access time
-    conversation_cache[conversation_id]["last_access"] = current_time
-    return conversation_id, conversation_cache[conversation_id]["messages"]
+    # Create memory
+    memory = ConversationBufferMemory(
+        memory_key="chat_history",
+        return_messages=True,
+        output_key="answer" 
+    )
+    
+    # Create a retriever with compression to get more relevant context
+    # retriever = vector_store.as_retriever(search_kwargs={"k": 3})
+    retriever = get_vectorstore_retriever(topic_id,query)
+    retrieved_docs = retriever.get_relevant_documents(query)
+    logger.info(f"Retrieved {len(retrieved_docs)} docs: {[doc.page_content[:200] for doc in retrieved_docs]}")
+
+    
+    # Create the chain
+    if llm:
+        logger.info(f"LLM Type: {type(llm).__name__}")
+    # For OpenAI models
+   
+    qa_chain = ConversationalRetrievalChain.from_llm(
+            llm=llm,
+            retriever=retriever,
+            memory = memory,
+            return_source_documents=True,
+            verbose=True,
+            output_key="answer"
+        )
+        
+        # Verification steps
+    logger.info(f"Chain created successfully for {chain_key}")
+    logger.info(f"Chain components: LLM type: {type(llm).__name__}, " 
+                   f"Retriever type: {type(retriever).__name__}")
+        
+        # Test if the chain has the expected methods
+    if not hasattr(qa_chain, 'invoke') and not hasattr(qa_chain, '__call__'):
+            logger.error("Chain missing expected methods")
+            return None
+            
+       
+    
+    # Store and return the chain
+    conversation_chains[chain_key] = qa_chain
+    
+    # Clean up if we have too many chains
+    if len(conversation_chains) > MAX_CONVERSATIONS:
+        # Remove oldest chains (simple approach)
+        chains_to_remove = list(conversation_chains.keys())[:-MAX_CONVERSATIONS]
+        for key in chains_to_remove:
+            del conversation_chains[key]
+    
+
+    return qa_chain
+        
+
+ 
+
+
 
 @app.post("/query", response_model=ChatResponse)
-async def answer_query_from_stored(request: QueryRequest):
+async def answer_query(request: QueryRequest):
     """
-    Endpoint to answer questions based on previously fetched data
-    Uses the topic_id to retrieve relevant data from Supabase
+    Answer questions using RAG over stored topic articles
     """
     try:
-        # Check if Supabase is connected
         if not supabase:
-            raise HTTPException(
-                status_code=503,
-                detail="Database connection not available"
-            )
-            
-        # Check if data fetching is complete
+            raise HTTPException(status_code=503, detail="Database connection not available")
+        
         status = check_topic_fetch_status(request.topic_id)
         if status != "completed":
-            if status == "processing":
-                message = "Data is still being fetched. Please try again in a moment."
-            elif status == "not_found":
-                message = "No data found for this topic. Please fetch the topic data first."
-            else:
-                message = f"Cannot process query. Data fetch status: {status}"
-            
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=message)
-        
-        # Get or create conversation history
-        conversation_id, history = get_conversation_history(request.conversation_id)
-        
-        # Add the user's query to the history
-        history.append({"role": "user", "content": request.query})
-        
-        # Format history for context
-        context = ""
-        if history:
-            # Only use last few messages to keep context size manageable
-            for message in history[-3:]:  # Reduced from 5 to 3 for efficiency
-                if message["role"] == "assistant":
-                    context += f"Assistant: {message['content']}\n"
-                else:
-                    context += f"User: {message['content']}\n"
-        
-        # Set a timeout for answer generation
+            error_map = {
+                "processing": (422, "Data is still being fetched. Please try again."),
+                "not_found": (404, "No data found. Please fetch the topic data first."),
+            }
+            code, msg = error_map.get(status, (422, f"Cannot process query. Status: {status}"))
+            raise HTTPException(status_code=code, detail=msg)
+
+        if not llm or not embeddings:
+            raise HTTPException(status_code=503, detail="LLM or embeddings not loaded.")
+
+        conversation_id = request.conversation_id or str(uuid.uuid4())
+
+        # --- Try to retrieve the vectorstore retriever ---
+        # try:
+        #     retriever = get_vectorstore_retriever(request.topic_id,request.query)
+        #     if not retriever:
+        #         raise HTTPException(status_code=404, detail="Vectorstore retriever not found for this topic.")
+        # except Exception as e:
+        #     logger.error(f"Error in retrieving vectorstore retriever for topic {request.topic_id}: {str(e)}")
+        #     raise HTTPException(status_code=500, detail="Error retrieving vectorstore retriever")
+
+       
+        # --- Try to set up the LangChain ConversationalRetrievalChain ---
         try:
-            # Get the answer using the stored data for the topic
-            response = await asyncio.wait_for(
-                answer_from_stored_data(
-                    query=request.query,
-                    topic_id=request.topic_id,
-                    conversation_context=context if len(history) > 1 else None
-                ),
-                timeout=30  # 30 seconds timeout
-            )
-        except asyncio.TimeoutError:
-            response = "I'm sorry, the response is taking too long to generate. Please try a simpler query."
-        
-        # Add the assistant's response to history
-        history.append({"role": "assistant", "content": response})
-        
-        # Update the cache - make sure we're limiting memory usage
-        if len(history) > 20:  # Limit conversation length
-            history = history[-20:]  # Keep only the most recent messages
-        
-        conversation_cache[conversation_id]["messages"] = history
-        
-        # Optionally store the conversation in Supabase for persistence
-        # supabase.table("conversations").upsert({
-        #     "id": conversation_id,
-        #     "topic_id": request.topic_id,
-        #     "messages": history,
-        #     "last_updated": time.time()
-        # }).execute()
-        
-        return {"response": response, "conversation_id": conversation_id}
+            chain = get_or_create_chain(request.topic_id ,conversation_id, request.query)
+        except Exception as e:
+            logger.error(f"Error setting up LangChain ConversationalRetrievalChain: {str(e)}")
+            raise HTTPException(status_code=500, detail="Error setting up conversational chain")
+
+        # --- Run the chain asynchronously ---
+       
+        # async def run_chain_async():
+           
+        #    try:
+        logger.info(f"Starting chain processing for query: {request.query}")
+        #         result = await chain.invoke({"question": request.query})
+        #         # Log successful query
+        #         # supabase.table("queries").insert({
+        #         #     "topic_id": request.topic_id,
+        #         #     "query": request.query,
+        #         #     "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+        #         # }).execute()
+        #         return result.get("answer", "Sorry, no answer")
+        #    except Exception as e:INFO:httpx:HTTP Request: POST http://127.0.0.1:11434/api/generate "HTTP/1.1 200 OK"
+        #         # Log error but don't crash
+        #         print(f"Error in chain.invoke: {str(e)}")
+        #         return "Sorry, I encountered an error processing your request."
+
+    
+        # response = await asyncio.wait_for(run_chain_async(), timeout=45)
+    
+        result = chain.invoke({"question": request.query})
+        answer = result.get("answer", "Sorry, No Answer")
+
+# Add logging to verify the answer is being extracted correctly
+        logger.info(f"Question: {request.query}")
+        logger.info(f"Raw result keys: {result.keys()}")
+        logger.info(f"Answer extracted (first 100 chars): {answer[:100]}...")
+
+        return {"response": answer, "conversation_id": conversation_id}
     
     except HTTPException:
-        raise  # Re-raise HTTP exceptions
+        raise
     except Exception as e:
         logger.error(f"Error in query processing: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in query processing: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+    
+   
 
 @app.get("/topic/{topic_id}/articles")
 async def get_topic_articles(topic_id: str, limit: int = 100, offset: int = 0):
     """
     Fetch all articles for a specific topic
-    
-    Args:
-        topic_id: The UUID of the topic
-        limit: Maximum number of articles to return (default: 100)
-        offset: Number of articles to skip (for pagination)
-        
-    Returns:
-        List of articles with their metadata and content
     """
     try:
         # Check if Supabase is connected
@@ -710,7 +830,7 @@ async def get_topic_articles(topic_id: str, limit: int = 100, offset: int = 0):
             .select("id", count="exact") \
             .eq("topic_id", topic_id) \
             .execute()
-            
+        
         total_count = count_result.count if hasattr(count_result, "count") else len(articles_result.data)
         
         return {
@@ -736,36 +856,16 @@ async def check_topic_status(topic_id: str):
     """
     Check the status of data fetching for a topic
     """
-    # First check our internal background task status
-    if topic_id in background_tasks_status:
-        return {"topic_id": topic_id, "status": background_tasks_status[topic_id]}
-    
-    # If not in our internal tracking, check in the database
     status = check_topic_fetch_status(topic_id)
     return {"topic_id": topic_id, "status": status}
 
-@app.get("/conversations/{conversation_id}")
-async def get_conversation(conversation_id: str):
-    """Endpoint to retrieve conversation history"""
-    if conversation_id not in conversation_cache:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    return {"conversation": conversation_cache[conversation_id]["messages"]}
-
-@app.delete("/conversations/{conversation_id}")
-async def delete_conversation(conversation_id: str):
-    """Endpoint to delete a conversation"""
-    if conversation_id in conversation_cache:
-        del conversation_cache[conversation_id]
-    return {"status": "deleted"}
-
-# Health check endpoint for Railway
 @app.get("/health")
 def health_check():
     return {"status": "healthy", "database": "connected" if supabase else "disconnected"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    # Use uvicorn with optimized settings for Railway
+    # Use uvicorn to run the app
     import uvicorn
     uvicorn.run(
         "main:app", 
@@ -775,4 +875,3 @@ if __name__ == "__main__":
         log_level="info",
         timeout_keep_alive=65  # Railway closes idle connections after 75s
     )
-

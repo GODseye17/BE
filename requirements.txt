@@ -9,7 +9,6 @@ scrapy
 fastapi
 pydantic
 uvicorn
-google-generativeai
 langchain-community
 huggingface_hub[hf_xet]
 python-dotenv

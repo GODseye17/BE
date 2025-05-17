@@ -360,7 +360,7 @@ app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://www.vivum.app", "http://localhost:8081"],
+    allow_origins=["https://www.vivum.app", "http://localhost:8081","http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -765,7 +765,7 @@ async def answer_query(request: QueryRequest):
 # Add logging to verify the answer is being extracted correctly
         logger.info(f"Question: {request.query}")
         logger.info(f"Raw result keys: {result.keys()}")
-        logger.info(f"Answer extracted (first 100 chars): {answer[:100]}...")
+
 
         return {"response": answer, "conversation_id": conversation_id}
     

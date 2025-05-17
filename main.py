@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+# from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain_core.callbacks.manager import CallbackManagerForLLMRun
 from langchain_core.language_models.llms import LLM
 from langchain_core.outputs import ChatGeneration, ChatResult
@@ -21,18 +21,17 @@ import os
 from langchain.docstore.document import Document
 
 # LangChain imports
-from langchain_ollama import OllamaLLM
 # Community modules
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_community.document_loaders import PubMedLoader
+# from langchain_community.document_loaders import PubMedLoader
 
 # Core modules (still under langchain)
 from langchain.chains import ConversationalRetrievalChain
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.memory import ConversationBufferMemory
-from langchain.retrievers import ContextualCompressionRetriever
-from langchain.retrievers.document_compressors import LLMChainExtractor
+# from langchain.retrievers import ContextualCompressionRetriever
+# from langchain.retrievers.document_compressors import LLMChainExtractor
 
 from langchain.prompts import PromptTemplate
 
@@ -327,14 +326,7 @@ async def lifespan(app: FastAPI):
         # Initialize LLM - Using Llama hosted model
         logger.info("Loading Llama model")
         try:
-            # Using Ollama to serve Llama models - assumes Ollama is running locally
-            # You'd adapt this based on your deployment model
-        
-            # llm = OllamaLLM(
-            # model="llama3:latest",
-            # streaming=True,
-            # callbacks=[StreamingStdOutCallbackHandler()]  # Logs chunks to stdout
-            # )
+           
             llm = TogetherChatModel(
             api_key="7d8e09c3ede29df9e06c6858304734f62ad95b458eb219fa3abf53ecef490e09",
             model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",

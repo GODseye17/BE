@@ -18,3 +18,4 @@ supabase
 httpx
 transformers
 torch
+together

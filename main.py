@@ -46,7 +46,8 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 # Create a more constrained prompt that handles missing information better
 detailed_prompt = PromptTemplate(
     input_variables=["context", "question"],
-    template="""You are an expert research assistant helping users find information from scientific papers.
+    template="""
+You are an expert research assistant helping users find information from scientific papers.
 
 Research Papers (each begins with a label like [Article 1], [Article 2], etc.):
 {context}
@@ -58,12 +59,17 @@ Guidelines:
 2. When answering questions about authors, look carefully through the provided context for author names.
 3. When discussing papers, include relevant details like PubMed IDs when available.
 4. If asked "who wrote" or "who is the author", search through all the provided papers for author information.
-5. If the question mentions "article 2", "article 3", etc., find the paper with that exact article number and use it's abstract to answer questions.
+5. If the question mentions "article 2", "article 3", etc., find the paper with that exact article number and use its abstract to answer questions.
 6. Be specific about which paper you're referring to when multiple papers are mentioned.
 7. If you cannot find the requested information in the provided context, clearly state this.
 
-Please extract your answer directly from the research papers above. If a specific article number is mentioned (e.g., [Article 3]), find the exact article with that label and extract details like title, authors, abstract, and PubMed ID directly from that section"""
+📌 If the user asks to compare two or more articles, generate a Markdown table comparing the key fields: Article Number, Title, Authors, PubMed ID, and Abstract. Place each article's values in separate columns.
+
+📌 For other queries, you may use text, or structured JSON (type: "table", data: [...]) if a general tabular summary is more appropriate.
+"""
 )
+
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

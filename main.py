@@ -44,9 +44,26 @@ from together import Together
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 # Create a more constrained prompt that handles missing information better
-template = "Answer the following question: {question}"
-prompt = PromptTemplate(template=template, input_variables=["question"])
+detailed_prompt = PromptTemplate(
+    input_variables=["context", "question"],
+    template="""You are an expert research assistant helping users find information from scientific papers.
 
+Research Papers (each begins with a label like [Article 1], [Article 2], etc.):
+{context}
+
+Chat History and Current Question: {question}
+
+Guidelines:
+1. Each paper is labeled with an article number like [Article 1], [Article 2], etc. Always refer to these numbers and their corresponding abstract when discussing specific papers.
+2. When answering questions about authors, look carefully through the provided context for author names.
+3. When discussing papers, include relevant details like PubMed IDs when available.
+4. If asked "who wrote" or "who is the author", search through all the provided papers for author information.
+5. If the question mentions "article 2", "article 3", etc., find the paper with that exact article number and use it's abstract to answer questions.
+6. Be specific about which paper you're referring to when multiple papers are mentioned.
+7. If you cannot find the requested information in the provided context, clearly state this.
+
+Please extract your answer directly from the research papers above. If a specific article number is mentioned (e.g., [Article 3]), find the exact article with that label and extract details like title, authors, abstract, and PubMed ID directly from that section"""
+)
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -116,9 +133,9 @@ def get_vectorstore_retriever(topic_id, query):
     
     retriever = vector_store.as_retriever(
     search_type="similarity",
-    search_kwargs={"k": 2},
+    search_kwargs={"k": 5},
 )
-    logger.info(query +"hello")
+    logger.info(query)
     return retriever
 
 
@@ -427,7 +444,7 @@ async def fetch_pubmed_data(topic: str, topic_id: str, max_results: int):
 
         docs = []
         articles_data = []
-        for article in root.findall(".//PubmedArticle"):
+        for idx, article in enumerate(root.findall(".//PubmedArticle"), start=1):
             try:
                 pmid = article.findtext(".//PMID") or "unknown"
                 title = article.findtext(".//ArticleTitle") or "No Title"
@@ -437,15 +454,32 @@ async def fetch_pubmed_data(topic: str, topic_id: str, max_results: int):
                     [f"{a.findtext('LastName', '')} {a.findtext('ForeName', '')}".strip() for a in authors_list if a.findtext('LastName')]
                 ) or "Unknown Authors"
 
-                page_content = f"Title: {title}\nAbstract: {abstract}"
+                # page_content = f"Title: {title}\nAbstract: {abstract}"
+                # metadata = {
+                #     "pubmed_id": pmid,
+                #     "title": title,
+                #     "authors": authors,
+                #     "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+                # }
+
+                # # For vector store
+                # docs.append(Document(page_content=page_content, metadata=metadata))
+
+                page_content = f"""[Article {idx}]
+                Title: {title}
+                **Authors**: {authors}
+                Publication ID: {pmid}
+                Abstract: {abstract}"""
+                
+
                 metadata = {
                     "pubmed_id": pmid,
                     "title": title,
                     "authors": authors,
+                    "Article Number":idx,
                     "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
                 }
 
-                # For vector store
                 docs.append(Document(page_content=page_content, metadata=metadata))
 
                 # For Supabase (optional)
@@ -463,7 +497,13 @@ async def fetch_pubmed_data(topic: str, topic_id: str, max_results: int):
         logger.info(f"📄 Processed {len(docs)} valid articles.")
 
         # Step 4: Split documents
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+      
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=3000,    # increase chunk size enough to hold entire article
+            chunk_overlap=0,    # no overlap needed if you want clean, separate chunks
+            separators=["\n\n", "\n", ".", " "]  # allow splitting at paragraphs or sentences if needed
+        )
+
         split_docs = text_splitter.split_documents(docs)
 
         # Step 5: Create and save vector store
@@ -621,8 +661,10 @@ def get_or_create_chain(topic_id: str, conversation_id: str , query:str):
             memory = memory,
             return_source_documents=True,
             verbose=True,
-            output_key="answer"
+            output_key="answer",
+            combine_docs_chain_kwargs={"prompt": detailed_prompt}
         )
+        
         
         # Verification steps
     logger.info(f"Chain created successfully for {chain_key}")

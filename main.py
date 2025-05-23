@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+from langchain_core.vectorstores import InMemoryVectorStore
+from pathlib import Path
 # from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain_core.callbacks.manager import CallbackManagerForLLMRun
 from langchain_core.language_models.llms import LLM
@@ -57,11 +59,13 @@ supabase_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 supabase: Optional[Client] = None
 llm = None
 embeddings = None
+vector_store = None
 
 # Cache for conversation chains and vector stores
 topic_vectorstores = {}
 conversation_chains = {}
 background_tasks_status = {}
+
 
 # Max conversation count to prevent memory leaks
 MAX_CONVERSATIONS = 100
@@ -85,10 +89,13 @@ class ChatResponse(BaseModel):
     conversation_id: str
 
 
-def get_vectorstore_retriever(topic_id, query=None):
+def get_vectorstore_retriever(topic_id, query):
  
     # Define the index path
     index_path = f"vectorstores/{topic_id}/index.faiss"
+
+    vectorstore_path = Path("vectorstores") / str(topic_id)
+    db = FAISS.load_local(str(vectorstore_path), embeddings,allow_dangerous_deserialization=True)
     
     # Check if the FAISS index file exists
     if not os.path.exists(index_path):
@@ -101,23 +108,17 @@ def get_vectorstore_retriever(topic_id, query=None):
     # Load the FAISS index with proper error handling
     try:
         logger.info(f"Loading FAISS index file at: {index_path}")
-        db = FAISS.load_local(
-            f"vectorstores/{topic_id}", 
-            embeddings, 
-            allow_dangerous_deserialization=True
-        )
+      
     except Exception as e:
         logger.error(f"Error loading FAISS index: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to load FAISS index: {str(e)}")
     
     
-    retriever = db.as_retriever(
-    search_type="similarity_score_threshold",
-    search_kwargs={
-        "score_threshold": 0.3,  # You can fine-tune between 0.3 – 0.7
-        "k": 4
-    }
+    retriever = vector_store.as_retriever(
+    search_type="similarity",
+    search_kwargs={"k": 2},
 )
+    logger.info(query +"hello")
     return retriever
 
 
@@ -311,7 +312,7 @@ class TogetherLLM(LLM):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Initialize connections and models
-    global supabase, llm, embeddings
+    global supabase, llm, embeddings,vector_store
     logger.info("Starting application: Initializing connections and models")
     
     try:
@@ -322,6 +323,7 @@ async def lifespan(app: FastAPI):
         # Initialize embedding model - HuggingFace for embeddings
         logger.info("Loading embedding model")
         embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        vector_store = InMemoryVectorStore(embeddings)
         
         # Initialize LLM - Using Llama hosted model
         logger.info("Loading Llama model")
@@ -465,9 +467,9 @@ async def fetch_pubmed_data(topic: str, topic_id: str, max_results: int):
         split_docs = text_splitter.split_documents(docs)
 
         # Step 5: Create and save vector store
-        vector_store = FAISS.from_documents(split_docs, embeddings)
-        vector_store.save_local(f"vectorstores/{topic_id}")
-
+        temp = FAISS.from_documents(split_docs, embeddings)
+        temp.save_local(f"vectorstores/{topic_id}")
+        ids = vector_store.add_documents(documents=split_docs)
         logger.info(f"✅ Vector store created and saved for topic_id '{topic_id}'")
 
         # Step 6 (optional): Store metadata in Supabase
@@ -596,40 +598,7 @@ def get_or_create_chain(topic_id: str, conversation_id: str , query:str):
    
     if chain_key in conversation_chains:
         return conversation_chains[chain_key]
-    
-    # # Check if vector store exists for this topic
-    # if topic_id not in topic_vectorstores:
-    #     # Try to load from Supabase and create vector store
-    #     try:
-    #         if supabase:
-    #             result = supabase.table("articles").select("*").eq("topic_id", topic_id).execute()
-    #             if result.data:
-    #                 # Convert to documents
-    #                 docs = []
-    #                 for article in result.data:
-    #                     doc_content = f"Title: {article['title']}\nAbstract: {article['abstract']}"
-    #                     metadata = {
-    #                         "pubmed_id": article["pubmed_id"],
-    #                         "title": article["title"],
-    #                         "authors": article["authors"],
-    #                         "url": article["url"]
-    #                     }
-    #                     docs.append({"page_content": doc_content, "metadata": metadata})
-                    
-    #                 # Create vector store
-    #                 vector_store = FAISS.from_documents(docs, embeddings)
-    #                 vector_store.save_local(f"vectorstores/{topic_id}")
-    #                 topic_vectorstores[topic_id] = vector_store
-    #             else:
-    #                 return None
-    #         else:
-    #             return None
-    #     except Exception as e:
-    #         logger.error(f"Error loading articles: {str(e)}")
-    #         return None
-    
-    # # Get the vector store
-    # vector_store = topic_vectorstores[topic_id]
+
     
     # Create memory
     memory = ConversationBufferMemory(
@@ -641,14 +610,10 @@ def get_or_create_chain(topic_id: str, conversation_id: str , query:str):
     # Create a retriever with compression to get more relevant context
     # retriever = vector_store.as_retriever(search_kwargs={"k": 3})
     retriever = get_vectorstore_retriever(topic_id,query)
-    retrieved_docs = retriever.get_relevant_documents(query)
-    logger.info(f"Retrieved {len(retrieved_docs)} docs: {[doc.page_content[:200] for doc in retrieved_docs]}")
-
     
     # Create the chain
-    if llm:
-        logger.info(f"LLM Type: {type(llm).__name__}")
-    # For OpenAI models
+    logger.info(f"Chain components: LLM type: {type(llm).__name__}, " 
+                   f"Retriever type: {type(retriever).__name__}")
    
     qa_chain = ConversationalRetrievalChain.from_llm(
             llm=llm,
@@ -712,15 +677,7 @@ async def answer_query(request: QueryRequest):
 
         conversation_id = request.conversation_id or str(uuid.uuid4())
 
-        # --- Try to retrieve the vectorstore retriever ---
-        # try:
-        #     retriever = get_vectorstore_retriever(request.topic_id,request.query)
-        #     if not retriever:
-        #         raise HTTPException(status_code=404, detail="Vectorstore retriever not found for this topic.")
-        # except Exception as e:
-        #     logger.error(f"Error in retrieving vectorstore retriever for topic {request.topic_id}: {str(e)}")
-        #     raise HTTPException(status_code=500, detail="Error retrieving vectorstore retriever")
-
+  
        
         # --- Try to set up the LangChain ConversationalRetrievalChain ---
         try:
@@ -729,28 +686,8 @@ async def answer_query(request: QueryRequest):
             logger.error(f"Error setting up LangChain ConversationalRetrievalChain: {str(e)}")
             raise HTTPException(status_code=500, detail="Error setting up conversational chain")
 
-        # --- Run the chain asynchronously ---
-       
-        # async def run_chain_async():
-           
-        #    try:
         logger.info(f"Starting chain processing for query: {request.query}")
-        #         result = await chain.invoke({"question": request.query})
-        #         # Log successful query
-        #         # supabase.table("queries").insert({
-        #         #     "topic_id": request.topic_id,
-        #         #     "query": request.query,
-        #         #     "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
-        #         # }).execute()
-        #         return result.get("answer", "Sorry, no answer")
-        #    except Exception as e:INFO:httpx:HTTP Request: POST http://127.0.0.1:11434/api/generate "HTTP/1.1 200 OK"
-        #         # Log error but don't crash
-        #         print(f"Error in chain.invoke: {str(e)}")
-        #         return "Sorry, I encountered an error processing your request."
 
-    
-        # response = await asyncio.wait_for(run_chain_async(), timeout=45)
-    
         result = chain.invoke({"question": request.query})
         answer = result.get("answer", "Sorry, No Answer")
 

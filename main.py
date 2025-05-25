@@ -174,22 +174,22 @@ For comparative analyses, use this structured format:
 ### **Structured JSON Output**
 For data extraction or systematic summaries:
 ```json
-{
+{{
   "type": "systematic_analysis",
   "query_type": "[classification]",
   "total_articles": "[number]",
   "data": [
-    {
+    {{
       "article_id": "[Article X]",
       "key_findings": "[findings]",
       "methodology": "[approach]",
       "quality_indicators": "[assessment]"
-    }
+    }}
   ],
   "synthesis": "[overall_conclusions]",
   "limitations": "[noted_limitations]",
   "research_gaps": "[identified_gaps]"
-}
+}}
 ```
 
 ---

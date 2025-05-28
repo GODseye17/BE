@@ -1,4 +1,3 @@
-dotenv
 faiss-cpu
 google
 itemadapter
@@ -10,7 +9,7 @@ fastapi
 pydantic
 uvicorn
 langchain-community
-huggingface_hub[hf_xet]
+huggingface_hub
 python-dotenv
 aiohttp
 certifi
@@ -18,8 +17,7 @@ supabase
 httpx
 transformers
 torch
-together
+together-ai
 Bio
 langchain_elasticsearch
 elasticsearch
-hf_xet

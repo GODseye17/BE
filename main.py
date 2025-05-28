@@ -46,7 +46,6 @@ from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, H
 from together import Together
 
 import requests
-from Bio import Entrez  # Biopython library
 
 
 
@@ -241,23 +240,13 @@ MAX_CONVERSATIONS = 100
 
 
 # Set your email (required by NCBI)
-Entrez.email = "neeltulsiani007@gmail.com"
+
 
 client = Elasticsearch(
     "https://my-elasticsearch-project-e0def0.es.us-east-1.aws.elastic.cloud:443",
     api_key="YOUR_API_KEY"
 )
 
-def search_pubmed(query, max_results=100):
-    handle = Entrez.esearch(db="pubmed", term=query, retmax=max_results)
-    record = Entrez.read(handle)
-    logger.info("hello 1")
-    return record["IdList"]
-
-def fetch_articles(id_list):
-    handle = Entrez.efetch(db="pubmed", id=id_list, rettype="medline", retmode="xml")
-    logger.info("hello 2")
-    return Entrez.read(handle)
 
 class TopicRequest(BaseModel):
     topic: str

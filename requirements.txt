@@ -17,7 +17,7 @@ supabase
 httpx
 transformers
 torch
-together-ai
+together
 Bio
 langchain_elasticsearch
 elasticsearch

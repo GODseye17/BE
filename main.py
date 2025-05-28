@@ -39,6 +39,10 @@ from langchain.prompts import PromptTemplate
 
 from together import Together
 
+import requests
+from Bio import Entrez  # Biopython library
+
+
 
 
 
@@ -92,6 +96,22 @@ background_tasks_status = {}
 
 # Max conversation count to prevent memory leaks
 MAX_CONVERSATIONS = 100
+
+
+
+# Set your email (required by NCBI)
+Entrez.email = "neeltulsiani007@gmail.com"
+
+def search_pubmed(query, max_results=100):
+    handle = Entrez.esearch(db="pubmed", term=query, retmax=max_results)
+    record = Entrez.read(handle)
+    logger.info("hello 1")
+    return record["IdList"]
+
+def fetch_articles(id_list):
+    handle = Entrez.efetch(db="pubmed", id=id_list, rettype="medline", retmode="xml")
+    logger.info("hello 2")
+    return Entrez.read(handle)
 
 class TopicRequest(BaseModel):
     topic: str
@@ -411,8 +431,122 @@ async def check_model_status():
 def ping():
     return {"status": "alive", "active_tasks": len(background_tasks_status)}
 
+# async def fetch_pubmed_data(topic: str, topic_id: str, max_results: int):
+#     """Fetch PubMed articles and create vector store efficiently"""
+#     try:
+#         logger.info(f"🔍 Fetching PubMed articles for topic '{topic}' (max {max_results})")
+
+#         # Step 1: Search PubMed for relevant article IDs
+#         search_params = {
+#             "db": "pubmed",
+#             "term": topic,
+#             "retmode": "json",
+#             "retmax": max_results,
+#         }
+#         search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+#         response = requests.get(search_url, params=search_params)
+#         response.raise_for_status()
+
+#         article_ids = response.json().get("esearchresult", {}).get("idlist", [])
+#         if not article_ids:
+#             logger.warning(f"⚠️ No articles found for topic '{topic}'")
+#             return False
+
+#         logger.info(f"✅ Found {len(article_ids)} articles. Fetching details...")
+
+#         # Step 2: Fetch article details (batch fetch)
+#         details_params = {
+#             "db": "pubmed",
+#             "id": ",".join(article_ids),
+#             "retmode": "xml",
+#         }
+#         details_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+#         details_response = requests.get(details_url, params=details_params)
+#         details_response.raise_for_status()
+
+#         # Step 3: Parse XML manually (lightweight)
+#         from xml.etree import ElementTree as ET
+#         root = ET.fromstring(details_response.content)
+
+#         docs = []
+#         articles_data = []
+#         for idx, article in enumerate(root.findall(".//PubmedArticle"), start=1):
+#             try:
+#                 pmid = article.findtext(".//PMID") or "unknown"
+#                 title = article.findtext(".//ArticleTitle") or "No Title"
+#                 abstract = " ".join([elem.text or "" for elem in article.findall(".//AbstractText")]).strip()
+#                 authors_list = article.findall(".//Author")
+#                 authors = "; ".join(
+#                     [f"{a.findtext('LastName', '')} {a.findtext('ForeName', '')}".strip() for a in authors_list if a.findtext('LastName')]
+#                 ) or "Unknown Authors"
+
+     
+#                 page_content = f"""[Article {idx}]
+#                 Title: {title}
+#                 **Authors**: {authors}
+#                 Publication ID: {pmid}
+#                 Abstract: {abstract}"""
+                
+
+#                 metadata = {
+#                     "pubmed_id": pmid,
+#                     "title": title,
+#                     "authors": authors,
+#                     "Article Number":idx,
+#                     "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+#                 }
+
+#                 docs.append(Document(page_content=page_content, metadata=metadata))
+
+#                 # For Supabase (optional)
+#                 articles_data.append({
+#                     "topic_id": topic_id,
+#                     "pubmed_id": pmid,
+#                     "title": title,
+#                     "abstract": abstract,
+#                     "authors": authors,
+#                     "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+#                 })
+#             except Exception as parse_err:
+#                 logger.warning(f"⚠️ Skipping malformed article: {parse_err}")
+
+#         logger.info(f"📄 Processed {len(docs)} valid articles.")
+
+#         # Step 4: Split documents
+      
+#         text_splitter = RecursiveCharacterTextSplitter(
+#             chunk_size=3000,    # increase chunk size enough to hold entire article
+#             chunk_overlap=0,    # no overlap needed if you want clean, separate chunks
+#             separators=["\n\n", "\n", ".", " "]  # allow splitting at paragraphs or sentences if needed
+#         )
+
+#         split_docs = text_splitter.split_documents(docs)
+
+#         # Step 5: Create and save vector store
+#         temp = FAISS.from_documents(split_docs, embeddings)
+#         temp.save_local(f"vectorstores/{topic_id}")
+#         ids = vector_store.add_documents(documents=split_docs)
+#         logger.info(f"✅ Vector store created and saved for topic_id '{topic_id}'")
+
+#         # Step 6 (optional): Store metadata in Supabase
+#         if supabase:
+#             supabase.table("topics").update({
+#                 "status": "completed"
+#             }).eq("id", topic_id).execute()
+
+#             supabase.table("articles").insert(articles_data).execute()
+#             logger.info(f"✅ Stored {len(articles_data)} articles metadata to Supabase.")
+
+#         return True
+
+#     except Exception as e:
+#         logger.error(f"❌ Error in fetch_and_create_vectorstore: {str(e)}")
+#         if supabase:
+#             supabase.table("topics").update({"status": f"error: {str(e)}", "article_count": 0}).eq("id", topic_id).execute()
+#         return False
+
 async def fetch_pubmed_data(topic: str, topic_id: str, max_results: int):
-    """Fetch PubMed articles and create vector store efficiently"""
+    """Fetch PubMed articles and create vector store with proper content/metadata separation"""
     try:
         logger.info(f"🔍 Fetching PubMed articles for topic '{topic}' (max {max_results})")
 
@@ -444,81 +578,62 @@ async def fetch_pubmed_data(topic: str, topic_id: str, max_results: int):
         details_response = requests.get(details_url, params=details_params)
         details_response.raise_for_status()
 
-        # Step 3: Parse XML manually (lightweight)
+        # Step 3: Parse XML with enhanced extraction
         from xml.etree import ElementTree as ET
         root = ET.fromstring(details_response.content)
 
         docs = []
         articles_data = []
+        
         for idx, article in enumerate(root.findall(".//PubmedArticle"), start=1):
             try:
-                pmid = article.findtext(".//PMID") or "unknown"
-                title = article.findtext(".//ArticleTitle") or "No Title"
-                abstract = " ".join([elem.text or "" for elem in article.findall(".//AbstractText")]).strip()
-                authors_list = article.findall(".//Author")
-                authors = "; ".join(
-                    [f"{a.findtext('LastName', '')} {a.findtext('ForeName', '')}".strip() for a in authors_list if a.findtext('LastName')]
-                ) or "Unknown Authors"
-
-                # page_content = f"Title: {title}\nAbstract: {abstract}"
-                # metadata = {
-                #     "pubmed_id": pmid,
-                #     "title": title,
-                #     "authors": authors,
-                #     "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
-                # }
-
-                # # For vector store
-                # docs.append(Document(page_content=page_content, metadata=metadata))
-
-                page_content = f"""[Article {idx}]
-                Title: {title}
-                **Authors**: {authors}
-                Publication ID: {pmid}
-                Abstract: {abstract}"""
+                # Extract comprehensive article data
+                article_data = extract_enhanced_article_data(article, idx)
                 
+                # Validate article quality
+                if not validate_article_data(article_data):
+                    logger.warning(f"⚠️ Skipping low-quality article: {article_data.get('pmid', 'unknown')}")
+                    continue
 
-                metadata = {
-                    "pubmed_id": pmid,
-                    "title": title,
-                    "authors": authors,
-                    "Article Number":idx,
-                    "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
-                }
+                # Create content chunks for embedding
+                content_chunks = create_content_chunks(article_data)
+                
+                # Add chunks as documents
+                for chunk in content_chunks:
+                    docs.append(Document(
+                        page_content=chunk['content'],  # Only content for embedding
+                        metadata=chunk['metadata']      # Rich metadata for filtering/citations
+                    ))
 
-                docs.append(Document(page_content=page_content, metadata=metadata))
-
-                # For Supabase (optional)
+                # For Supabase storage (optional)
                 articles_data.append({
                     "topic_id": topic_id,
-                    "pubmed_id": pmid,
-                    "title": title,
-                    "abstract": abstract,
-                    "authors": authors,
-                    "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+                    "pubmed_id": article_data['pmid'],
+                    "title": article_data['title'],
+                    "abstract": article_data['abstract'],
+                    "authors": article_data['authors'],
+                    "journal": article_data['journal'],
+                    "publication_date": article_data['publication_date'],
+                    "doi": article_data['doi'],
+                    "mesh_terms": article_data['mesh_terms'],
+                    "keywords": article_data['keywords'],
+                    "url": f"https://pubmed.ncbi.nlm.nih.gov/{article_data['pmid']}/"
                 })
+
             except Exception as parse_err:
                 logger.warning(f"⚠️ Skipping malformed article: {parse_err}")
 
-        logger.info(f"📄 Processed {len(docs)} valid articles.")
+        logger.info(f"📄 Processed {len(docs)} content chunks from articles.")
 
-        # Step 4: Split documents
-      
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=3000,    # increase chunk size enough to hold entire article
-            chunk_overlap=0,    # no overlap needed if you want clean, separate chunks
-            separators=["\n\n", "\n", ".", " "]  # allow splitting at paragraphs or sentences if needed
-        )
+        if not docs:
+            logger.warning(f"⚠️ No valid articles to process for topic '{topic}'")
+            return False
 
-        split_docs = text_splitter.split_documents(docs)
-
-        # Step 5: Create and save vector store
-        temp = FAISS.from_documents(split_docs, embeddings)
+        # Step 4: Create vector store (no additional splitting needed - already chunked)
+        temp = FAISS.from_documents(docs, embeddings)
         temp.save_local(f"vectorstores/{topic_id}")
-        ids = vector_store.add_documents(documents=split_docs)
-        logger.info(f"✅ Vector store created and saved for topic_id '{topic_id}'")
+        ids = vector_store.add_documents(documents=docs)
 
-        # Step 6 (optional): Store metadata in Supabase
         if supabase:
             supabase.table("topics").update({
                 "status": "completed"
@@ -526,14 +641,227 @@ async def fetch_pubmed_data(topic: str, topic_id: str, max_results: int):
 
             supabase.table("articles").insert(articles_data).execute()
             logger.info(f"✅ Stored {len(articles_data)} articles metadata to Supabase.")
-
+        
+        logger.info(f"✅ Vector store created with {len(docs)} chunks for topic_id '{topic_id}'")
         return True
 
     except Exception as e:
-        logger.error(f"❌ Error in fetch_and_create_vectorstore: {str(e)}")
-        if supabase:
-            supabase.table("topics").update({"status": f"error: {str(e)}", "article_count": 0}).eq("id", topic_id).execute()
+        logger.error(f"❌ Error fetching PubMed data: {e}")
         return False
+
+
+def extract_enhanced_article_data(article, idx):
+    """Extract comprehensive article data with proper error handling"""
+    
+    # Basic identifiers
+    pmid = article.findtext(".//PMID") or "unknown"
+    
+    # Title
+    title = article.findtext(".//ArticleTitle") or "No Title"
+    
+    # Enhanced abstract extraction (handles structured abstracts)
+    abstract = extract_structured_abstract(article)
+    
+    # Enhanced author extraction
+    authors = extract_authors_with_affiliations(article)
+    
+    # Journal information
+    journal = (article.findtext(".//Journal/Title") or 
+              article.findtext(".//MedlineTA") or 
+              "Unknown Journal")
+    
+    # Publication date
+    publication_date = extract_publication_date(article)
+    
+    # DOI extraction
+    doi = extract_doi(article)
+    
+    # MeSH terms and keywords
+    mesh_terms = extract_mesh_terms(article)
+    keywords = extract_keywords(article)
+    
+    # Publication types
+    pub_types = [pt.text for pt in article.findall(".//PublicationType") if pt.text]
+    
+    return {
+        'article_index': idx,
+        'pmid': pmid,
+        'title': title,
+        'abstract': abstract,
+        'authors': authors,
+        'journal': journal,
+        'publication_date': publication_date,
+        'doi': doi,
+        'mesh_terms': mesh_terms,
+        'keywords': keywords,
+        'publication_types': pub_types
+    }
+
+
+def extract_structured_abstract(article):
+    """Extract abstract handling structured formats with labels"""
+    abstract_texts = article.findall(".//AbstractText")
+    if not abstract_texts:
+        return "No Abstract"
+    
+    abstract_parts = []
+    for elem in abstract_texts:
+        label = elem.get('Label', '')
+        text = elem.text or ''
+        if text.strip():
+            if label:
+                abstract_parts.append(f"{label}: {text}")
+            else:
+                abstract_parts.append(text)
+    
+    return " ".join(abstract_parts).strip() or "No Abstract"
+
+
+def extract_authors_with_affiliations(article):
+    """Extract authors with proper name formatting"""
+    authors = []
+    for author in article.findall(".//Author"):
+        if author.find("CollectiveName") is not None:
+            collective_name = author.findtext("CollectiveName", "").strip()
+            if collective_name:
+                authors.append(collective_name)
+        else:
+            last = author.findtext("LastName", "").strip()
+            first = author.findtext("ForeName", "").strip()
+            initials = author.findtext("Initials", "").strip()
+            
+            if last:
+                if first:
+                    full_name = f"{last}, {first}"
+                elif initials:
+                    full_name = f"{last}, {initials}"
+                else:
+                    full_name = last
+                authors.append(full_name)
+    
+    return "; ".join(authors) or "Unknown Authors"
+
+
+def extract_publication_date(article):
+    """Extract publication date from various date fields"""
+    date_elem = (article.find(".//PubDate") or 
+                article.find(".//ArticleDate") or 
+                article.find(".//DateCompleted"))
+    
+    if date_elem is not None:
+        year = date_elem.findtext("Year", "")
+        month = date_elem.findtext("Month", "")
+        day = date_elem.findtext("Day", "")
+        
+        if year:
+            try:
+                # Convert month name to number if needed
+                if month and not month.isdigit():
+                    month_map = {
+                        'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04',
+                        'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08',
+                        'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
+                    }
+                    month = month_map.get(month[:3], month)
+                
+                if month and day:
+                    return f"{year}-{str(month).zfill(2)}-{day.zfill(2)}"
+                elif month:
+                    return f"{year}-{str(month).zfill(2)}"
+                else:
+                    return year
+            except:
+                return year
+    
+    return "Unknown Date"
+
+
+def extract_doi(article):
+    """Extract DOI from article identifiers"""
+    for article_id in article.findall(".//ArticleId"):
+        if article_id.get("IdType") == "doi":
+            return article_id.text
+    return None
+
+
+def extract_mesh_terms(article):
+    """Extract MeSH terms for topic classification"""
+    mesh_terms = []
+    for mesh in article.findall(".//MeshHeading/DescriptorName"):
+        if mesh.text:
+            mesh_terms.append(mesh.text)
+    return mesh_terms
+
+
+def extract_keywords(article):
+    """Extract author keywords"""
+    keywords = []
+    for keyword in article.findall(".//Keyword"):
+        if keyword.text:
+            keywords.append(keyword.text)
+    return keywords
+
+
+def validate_article_data(article_data):
+    """Validate article quality before processing"""
+    # Must have PMID
+    if not article_data.get('pmid') or article_data['pmid'] == 'unknown':
+        return False
+    
+    # Must have meaningful title
+    title = article_data.get('title', '')
+    if not title or title == 'No Title' or len(title.strip()) < 10:
+        return False
+    
+    # Must have abstract or be a substantial title
+    abstract = article_data.get('abstract', '')
+    if (not abstract or abstract == 'No Abstract' or len(abstract.strip()) < 50) and len(title) < 50:
+        return False
+    
+    return True
+
+
+def create_content_chunks(article_data):
+    """Create content chunks with proper content/metadata separation"""
+    chunks = []
+    
+    # Chunk 1: Title + Abstract (main content for semantic search)
+    title_abstract_content = f"""Title: {article_data['title']}
+
+Abstract: {article_data['abstract']}"""
+    
+    # Rich metadata for filtering and citations
+    base_metadata = {
+        "pubmed_id": article_data['pmid'],
+        "title": article_data['title'],
+        "authors": article_data['authors'],
+        "journal": article_data['journal'],
+        "publication_date": article_data['publication_date'],
+        "doi": article_data['doi'],
+        "mesh_terms": article_data['mesh_terms'],
+        "keywords": article_data['keywords'],
+        "publication_types": article_data['publication_types'],
+        "url": f"https://pubmed.ncbi.nlm.nih.gov/{article_data['pmid']}/",
+        "chunk_type": "title_abstract",
+        "article_index": article_data['article_index']
+    }
+    
+    chunks.append({
+        'content': title_abstract_content,
+        'metadata': base_metadata
+    })
+    
+    # If abstract is very long, create additional chunk for just abstract
+    if len(article_data['abstract']) > 2000:
+        abstract_metadata = base_metadata.copy()
+        abstract_metadata['chunk_type'] = 'abstract_only'
+        
+        chunks.append({
+            'content': f"Abstract: {article_data['abstract']}",
+            'metadata': abstract_metadata
+        })
+    
+    return chunks
 
 async def fetch_data_background(topic: str, topic_id: str, max_results: int):
     """Background task to fetch data from PubMed"""

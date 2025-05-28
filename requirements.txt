@@ -19,3 +19,4 @@ httpx
 transformers
 torch
 together
+Bio

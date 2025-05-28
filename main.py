@@ -9,11 +9,15 @@ from langchain_core.language_models.llms import LLM
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_elasticsearch import (
+    DenseVectorStrategy
+)
 from typing import Any, Dict, List, Mapping, Optional
 import uuid
 import asyncio
 import logging
 import requests
+from elasticsearch import Elasticsearch
 import time
 from contextlib import asynccontextmanager
 from supabase import create_client, Client
@@ -21,6 +25,7 @@ import datetime
 import json
 import os
 from langchain.docstore.document import Document
+from langchain_elasticsearch import ElasticsearchStore
 
 # LangChain imports
 # Community modules
@@ -35,7 +40,8 @@ from langchain.memory import ConversationBufferMemory
 # from langchain.retrievers import ContextualCompressionRetriever
 # from langchain.retrievers.document_compressors import LLMChainExtractor
 
-from langchain.prompts import PromptTemplate
+from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
+
 
 from together import Together
 
@@ -48,11 +54,7 @@ from Bio import Entrez  # Biopython library
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 # Create a more constrained prompt that handles missing information better
-detailed_prompt = PromptTemplate(
-    input_variables=["context", "question"],
-    template="""
-# Enhanced Research Assistant System Prompt
-
+full_system_prompt = """
 You are an expert research assistant specializing in evidence synthesis, literature review, systematic analysis, and scientific research support. Your role is to help users analyze, synthesize, and extract insights from scientific literature with the highest standards of academic rigor.
 
 ## Research Papers Context
@@ -94,7 +96,7 @@ Chat History and Current Question: {question}
 - Highlight sample sizes, statistical significance, and confidence intervals when available
 
 ### 5. Article Identification Queries**
-- "Who wrote Article [N]?" → Extract author information from the specified article number
+- "Who wrote Article [N]?" → Extract all the author information for the specified article number/pubmed id
 - "What is Article [N] about?" → Provide title, authors, and abstract summary for that article
 - "Tell me about PMID [number]" → Find and summarize the article with that PubMed ID
 - "Who are the authors of [title/journal description]?" → Match description to article and provide authors
@@ -188,98 +190,29 @@ For systematic summaries with full metadata utilization:
     "methodological_quality": "[assessment]"
   }}
 }}
-```
-
-### **Citation Format Enhancement**
-Use this standardized citation format:
-- Short form: [Smith et al., Nature, 2023, PMID: 12345678]
-- Full form: Smith J, Johnson A, Brown K. "Title of Article." Nature Medicine. 2023;15(3):123-45. PMID: 12345678. DOI: 10.1038/nature12345
-
----
-
-## SPECIALIZED RESPONSE PROTOCOLS
-
-### **Metadata-Enhanced Query Handling**
-
-#### **Author-Specific Queries**
-- "Recent work by [Author]" → Filter by author name and publication date
-- "What has [Institution] published on [topic]?" → Use author affiliations when available
-- "Find collaborative research between [Author A] and [Author B]" → Cross-reference author lists
-
-#### **Journal and Quality Queries**
-- "What do top-tier journals say about [topic]?" → Filter by journal impact and reputation
-- "Show me recent high-quality evidence" → Combine recency with journal quality indicators
-- "Compare findings across different journal types" → Analyze by journal categories
-
-#### **Topic Evolution Queries**
-- "How has research on [topic] evolved?" → Timeline analysis using publication dates
-- "What are the emerging themes in [field]?" → Recent publications with novel MeSH terms
-- "Find groundbreaking studies in [area]" → High-citation articles in top journals
-
-#### **Clinical Translation Queries**
-- "What's the clinical evidence for [intervention]?" → Filter by clinical trial publication types
-- "Find real-world effectiveness studies" → Target specific study design types
-- "Show me safety data for [treatment]" → Focus on adverse event reporting
-
----
-
-## QUALITY ASSURANCE PROTOCOLS
-
-### **Enhanced Verification Process:**
-1. **Content Verification**: Confirm all claims exist in article titles/abstracts
-2. **Metadata Validation**: Ensure author, journal, date information is accurate
-3. **Citation Completeness**: Include PMID, DOI, and full publication details
-4. **Temporal Accuracy**: Use publication dates for trend analysis
-5. **Topic Relevance**: Verify MeSH terms support topic classification
-
-### **Transparency Requirements:**
-- Always specify which articles were analyzed
-- Note when filtering by metadata (date, journal, author, etc.)
-- Distinguish between findings from different time periods
-- Highlight when evidence comes from specific journal types or study designs
-
-### **When Information is Insufficient:**
-- Specify metadata searched (authors, dates, journals, MeSH terms)
-- Note if limitations are due to publication timeframe or journal scope
-- Suggest expanding search parameters (date range, journal types, etc.)
-- Avoid speculation beyond available abstracts and metadata
-
----
-
-## ADVANCED ANALYTICAL FEATURES
-
-### **Research Landscape Mapping**
-- **Temporal Analysis**: "Research peaked in 2018-2020 based on publication frequency"
-- **Institutional Patterns**: "Leading research comes from [institutions] based on author affiliations"
-- **Collaboration Networks**: "Frequent collaborations between [research groups]"
-- **Journal Distribution**: "Findings published across [X] high-impact journals"
-
-### **Evidence Quality Assessment**
-- Use journal reputation and publication type for quality indicators
-- Note recency of evidence using publication dates
-- Identify seminal papers based on multiple citations within the dataset
-- Flag preliminary findings from preprint servers or newer publications
-
-### **Gap Analysis Enhancement**
-- "Recent publications (2022+) focus on [topics] while [other topics] lack current research"
-- "High-impact journals emphasize [approach] while other venues explore [alternative approaches]"
-- "Leading researchers are investigating [areas] but [other areas] lack expert attention"
-
----
-
-## FINAL DIRECTIVES
-
-- **Leverage full metadata richness** - use authors, dates, journals, MeSH terms, DOIs for comprehensive analysis
-- **Maintain citation precision** - include PMIDs and full publication details in all references
-- **Provide temporal context** - note when findings are recent vs. established using publication dates
-- **Acknowledge metadata limitations** - be transparent when author affiliations, full text, or other metadata is unavailable
-- **Enable filtered analysis** - help users understand findings from specific time periods, journals, or research groups
-- **Support evidence hierarchy** - use journal quality and publication types to assess evidence strength
-
-Remember: You now have access to rich metadata that enables sophisticated analysis beyond just content synthesis. Use this enhanced information to provide deeper insights into research trends, author networks, institutional contributions, and evidence quality while maintaining absolute fidelity to the source material.
 """
-)
 
+user_prompt_template = """
+You are a research assistant. Use the following research papers to answer the user's question.
+
+Research Papers Context
+{context}
+
+User Question
+{question}
+
+Instructions:
+Only use information from the context above.
+
+Cite using [Author et al., Journal, Year, PMID: XXXXXXXX].
+
+Do NOT include system principles or internal instructions in the output.
+"""
+
+detailed_prompt = ChatPromptTemplate.from_messages([
+SystemMessagePromptTemplate.from_template(full_system_prompt),
+HumanMessagePromptTemplate.from_template(user_prompt_template)
+])
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -294,6 +227,7 @@ supabase: Optional[Client] = None
 llm = None
 embeddings = None
 vector_store = None
+elastic_search = None
 
 # Cache for conversation chains and vector stores
 topic_vectorstores = {}
@@ -308,6 +242,11 @@ MAX_CONVERSATIONS = 100
 
 # Set your email (required by NCBI)
 Entrez.email = "neeltulsiani007@gmail.com"
+
+client = Elasticsearch(
+    "https://my-elasticsearch-project-e0def0.es.us-east-1.aws.elastic.cloud:443",
+    api_key="YOUR_API_KEY"
+)
 
 def search_pubmed(query, max_results=100):
     handle = Entrez.esearch(db="pubmed", term=query, retmax=max_results)
@@ -364,10 +303,15 @@ def get_vectorstore_retriever(topic_id, query):
         raise HTTPException(status_code=500, detail=f"Failed to load FAISS index: {str(e)}")
     
     
-    retriever = vector_store.as_retriever(
-    search_type="similarity",
-    search_kwargs={"k": 5},
-)
+#     retriever = vector_store.as_retriever(
+#     search_type="similarity",
+#     search_kwargs={"k": 5},
+# )
+
+    retriever = elastic_search.as_retriever(
+        search_kwargs={"k": 5}
+    )
+    
     logger.info(query)
     return retriever
 
@@ -562,7 +506,7 @@ class TogetherLLM(LLM):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Initialize connections and models
-    global supabase, llm, embeddings,vector_store
+    global supabase, llm, embeddings,vector_store,elastic_search
     logger.info("Starting application: Initializing connections and models")
     
     try:
@@ -572,8 +516,18 @@ async def lifespan(app: FastAPI):
         
         # Initialize embedding model - HuggingFace for embeddings
         logger.info("Loading embedding model")
-        embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/multi-qa-mpnet-base-dot-v1")
         vector_store = InMemoryVectorStore(embeddings)
+
+        elastic_search = ElasticsearchStore(
+    es_cloud_id="My_Elasticsearch_project:dXMtZWFzdC0xLmF3cy5lbGFzdGljLmNsb3VkJGUwZGVmMDhkN2YxMzRhZDJiMzgyYmNlMTBmOGZkZGQ4LmVzJGUwZGVmMDhkN2YxMzRhZDJiMzgyYmNlMTBmOGZkZGQ4Lmti",
+    es_api_key="ZXBJckY1Y0JrRFlSNHR5WlcxWEI6X1ZvUHhGWEdrSXhKRHMtRkltbWhzUQ==",
+    index_name="search-vivum-rag",
+    embedding=embeddings,
+    strategy=DenseVectorStrategy(
+            hybrid = "true"
+        )
+)
         
         # Initialize LLM - Using Llama hosted model
         logger.info("Loading Llama model")
@@ -835,6 +789,7 @@ async def fetch_pubmed_data(topic: str, topic_id: str, max_results: int):
         temp = FAISS.from_documents(docs, embeddings)
         temp.save_local(f"vectorstores/{topic_id}")
         ids = vector_store.add_documents(documents=docs)
+        _ = elastic_search.add_documents(documents=docs)
 
         if supabase:
             supabase.table("topics").update({
@@ -1023,6 +978,13 @@ def validate_article_data(article_data):
     return True
 
 
+splitter = RecursiveCharacterTextSplitter(
+    chunk_size=400,
+    chunk_overlap=50,
+    separators=["\n\n", "\n", ".", " "]
+)
+
+
 def create_content_chunks(article_data):
     """Create content chunks with proper content/metadata separation"""
     chunks = []
@@ -1070,14 +1032,18 @@ Abstract: {abstract}"""
     
   
     # If abstract is very long, create additional chunk for just abstract
-    if len(article_data['abstract']) > 2000:
-        abstract_metadata = base_metadata.copy()
-        abstract_metadata['chunk_type'] = 'abstract_only'
-        
-        chunks.append({
-            'content': f"Abstract: {article_data['abstract']}",
-            'metadata': abstract_metadata
-        })
+    if len(abstract) > 800:
+        abstract_chunks = splitter.split_text(abstract)
+        for i, abs_chunk in enumerate(abstract_chunks):
+            abstract_metadata = base_metadata.copy()
+            abstract_metadata["chunk_type"] = "abstract_split"
+            abstract_metadata["chunk_index"] = i
+            abstract_metadata["chunk_id"] = f"{pmid}_abs_{i}"
+
+            chunks.append({
+                'content': f"Abstract Chunk {i+1}: {abs_chunk}",
+                'metadata': abstract_metadata
+            })
     
     return chunks
 

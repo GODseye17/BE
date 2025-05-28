@@ -20,3 +20,6 @@ transformers
 torch
 together
 Bio
+langchain_elasticsearch
+elasticsearch
+hf_xet

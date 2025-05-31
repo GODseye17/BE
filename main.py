@@ -40,7 +40,7 @@ from langchain.memory import ConversationBufferMemory
 # from langchain.retrievers import ContextualCompressionRetriever
 # from langchain.retrievers.document_compressors import LLMChainExtractor
 
-from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
+from langchain.prompts import PromptTemplate,ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 
 
 from together import Together
@@ -52,6 +52,8 @@ import requests
 
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+
 # Create a more constrained prompt that handles missing information better
 full_system_prompt = """
 You are an expert research assistant specializing in evidence synthesis, literature review, systematic analysis, and scientific research support. Your role is to help users analyze, synthesize, and extract insights from scientific literature with the highest standards of academic rigor.
@@ -208,10 +210,28 @@ Cite using [Author et al., Journal, Year, PMID: XXXXXXXX].
 Do NOT include system principles or internal instructions in the output.
 """
 
-detailed_prompt = ChatPromptTemplate.from_messages([
-SystemMessagePromptTemplate.from_template(full_system_prompt),
-HumanMessagePromptTemplate.from_template(user_prompt_template)
-])
+prompt = """
+You are a helpful assistant answering questions based only on the information provided in the retrieved documents.
+
+Context:
+{context}
+
+Question:
+{question}
+
+Answer only using the information above. If the answer is not in the context, say "The information is not available in the provided documents."
+"""
+
+# detailed_prompt = ChatPromptTemplate.from_messages([
+# SystemMessagePromptTemplate.from_template(full_system_prompt),
+# HumanMessagePromptTemplate.from_template(user_prompt_template)
+# ])
+
+
+prompt_rag = PromptTemplate(
+    input_variables=["context", "question"],
+    template=prompt
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -986,7 +1006,6 @@ Abstract: {article_data['abstract']}"""
     
     # Rich metadata for filtering and citations
     base_metadata = {
-        "article_number": article_data.get('article_index', 0),
         "pubmed_id": article_data.get('pmid', 'unknown'),
         "title": article_data.get('title', 'No Title'),
         "authors": article_data.get('authors', 'Unknown Authors'),
@@ -1004,10 +1023,9 @@ Abstract: {article_data['abstract']}"""
     title = base_metadata["title"]
     authors = base_metadata["authors"]
     abstract = article_data.get('abstract', 'No Abstract')
-    article_num = base_metadata["article_number"]
     pmid = base_metadata["pubmed_id"]
     
-    title_abstract_content = f"""[Article {article_num} - PMID: {pmid}]
+    title_abstract_content = f"""[PMID: {pmid}]
 Title: {title}
 Authors: {authors}
 
@@ -1169,7 +1187,7 @@ def get_or_create_chain(topic_id: str, conversation_id: str , query:str):
             return_source_documents=True,
             verbose=True,
             output_key="answer",
-            combine_docs_chain_kwargs={"prompt": detailed_prompt}
+            combine_docs_chain_kwargs={"prompt": prompt_rag}
         )
         
         

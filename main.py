@@ -491,7 +491,7 @@ def get_vectorstore_retriever(topic_id, query):
 # )
 
     retriever = elastic_search.as_retriever(
-        search_kwargs={"k": 5}
+        search_kwargs={"k": 40}
     )
     
     logger.info(query)
@@ -719,7 +719,7 @@ async def lifespan(app: FastAPI):
             api_key="7d8e09c3ede29df9e06c6858304734f62ad95b458eb219fa3abf53ecef490e09",
             model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
             temperature=0.5,
-            max_tokens=2048,
+            max_tokens=4096,
             streaming=True
         )
             logger.info("LLM loaded successfully")
@@ -1348,6 +1348,18 @@ def get_or_create_chain(topic_id: str, conversation_id: str , query:str):
     # Create a retriever with compression to get more relevant context
     # retriever = vector_store.as_retriever(search_kwargs={"k": 3})
     retriever = get_vectorstore_retriever(topic_id,query)
+
+    try:
+        test_docs = retriever.get_relevant_documents(query[:100])  # Use truncated query for test
+        unique_pmids = set(doc.metadata.get('pubmed_id') for doc in test_docs if doc.metadata.get('pubmed_id'))
+        logger.info(f"Retrieved {len(test_docs)} chunks from {len(unique_pmids)} unique articles for topic {topic_id}")
+    except Exception as e:
+        logger.warning(f"Could not test retriever: {e}")
+    # END OF ADDED LINES
+    
+    # Create the chain
+    logger.info(f"Chain components: LLM type: {type(llm).__name__}, " 
+                   f"Retriever type: {type(retriever).__name__}")
     
     # Create the chain
     logger.info(f"Chain components: LLM type: {type(llm).__name__}, " 

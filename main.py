@@ -21,7 +21,6 @@ from elasticsearch import Elasticsearch
 import time
 from contextlib import asynccontextmanager
 from supabase import create_client, Client
-import datetime
 import json
 import os
 from langchain.docstore.document import Document
@@ -46,6 +45,13 @@ from langchain.prompts import PromptTemplate,ChatPromptTemplate, SystemMessagePr
 from together import Together
 
 import requests
+from datetime import datetime, timezone, timedelta
+from typing import Optional, List, Dict, Any, Union
+import requests
+import logging
+import re
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -386,7 +392,7 @@ Question:
 {question}
 
 Remember to:
-1. Count and catalog all articles before responding
+1. Count all articles provided (may vary based on relevance to query)
 2. Reference using "Article X (PMID: XXXXXXXX)"
 3. Synthesize insights from all articles
 4. Format citations in requested styles
@@ -444,6 +450,7 @@ client = Elasticsearch(
 class TopicRequest(BaseModel):
     topic: str
     max_results: Optional[int] = 20
+    filters: Optional[Dict[str, Any]] = None
 
 class QueryRequest(BaseModel):
     query: str
@@ -774,142 +781,303 @@ async def check_model_status():
 def ping():
     return {"status": "alive", "active_tasks": len(background_tasks_status)}
 
-# async def fetch_pubmed_data(topic: str, topic_id: str, max_results: int):
-#     """Fetch PubMed articles and create vector store efficiently"""
-#     try:
-#         logger.info(f"🔍 Fetching PubMed articles for topic '{topic}' (max {max_results})")
 
-#         # Step 1: Search PubMed for relevant article IDs
-#         search_params = {
-#             "db": "pubmed",
-#             "term": topic,
-#             "retmode": "json",
-#             "retmax": max_results,
-#         }
-#         search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-#         response = requests.get(search_url, params=search_params)
-#         response.raise_for_status()
+class PubMedFilters:
+    """Class to handle PubMed search filters and query construction matching PubMed's exact interface"""
+    
+    def __init__(self):
+        # Publication date filters (PubMed standard)
+        self.date_filters = {
+            '1_year': '1 year',
+            '5_years': '5 years', 
+            '10_years': '10 years',
+            'custom': 'custom'
+        }
+        
+        # Text availability filters
+        self.text_availability = {
+            'abstract': 'hasabstract[text]',
+            'full_text': 'full text[sb]',
+            'free_full_text': 'free full text[sb]'
+        }
+        
+        # Article types (PubMed publication types)
+        self.article_types = {
+            'clinical_trial': 'Clinical Trial[ptyp]',
+            'randomized_controlled_trial': 'Randomized Controlled Trial[ptyp]',
+            'meta_analysis': 'Meta-Analysis[ptyp]',
+            'systematic_review': 'Systematic Review[ptyp]',
+            'review': 'Review[ptyp]',
+            'case_reports': 'Case Reports[ptyp]',
+            'comparative_study': 'Comparative Study[ptyp]',
+            'observational_study': 'Observational Study[ptyp]',
+            'practice_guideline': 'Practice Guideline[ptyp]',
+            'editorial': 'Editorial[ptyp]',
+            'letter': 'Letter[ptyp]',
+            'comment': 'Comment[ptyp]',
+            'news': 'News[ptyp]',
+            'biography': 'Biography[ptyp]',
+            'congress': 'Congress[ptyp]',
+            'consensus_development_conference': 'Consensus Development Conference[ptyp]',
+            'guideline': 'Guideline[ptyp]'
+        }
+        
+        # Language filters (PubMed supported languages)
+        self.languages = {
+            'english': 'english[lang]',
+            'spanish': 'spanish[lang]',
+            'french': 'french[lang]',
+            'german': 'german[lang]',
+            'italian': 'italian[lang]',
+            'japanese': 'japanese[lang]',
+            'portuguese': 'portuguese[lang]',
+            'russian': 'russian[lang]',
+            'chinese': 'chinese[lang]',
+            'dutch': 'dutch[lang]',
+            'polish': 'polish[lang]',
+            'swedish': 'swedish[lang]',
+            'danish': 'danish[lang]',
+            'norwegian': 'norwegian[lang]',
+            'finnish': 'finnish[lang]',
+            'czech': 'czech[lang]',
+            'hungarian': 'hungarian[lang]',
+            'korean': 'korean[lang]',
+            'turkish': 'turkish[lang]',
+            'arabic': 'arabic[lang]',
+            'hebrew': 'hebrew[lang]'
+        }
+        
+        # Species filters
+        self.species = {
+            'humans': 'humans[mh]',
+            'other_animals': 'animals[mh] NOT humans[mh]',
+            'mice': 'mice[mh]',
+            'rats': 'rats[mh]',
+            'dogs': 'dogs[mh]',
+            'cats': 'cats[mh]',
+            'rabbits': 'rabbits[mh]',
+            'primates': 'primates[mh]',
+            'swine': 'swine[mh]',
+            'sheep': 'sheep[mh]',
+            'cattle': 'cattle[mh]'
+        }
+        
+        # Sex filters
+        self.sex = {
+            'female': 'female[mh]',
+            'male': 'male[mh]'
+        }
+        
+        # Age filters (PubMed MeSH age groups)
+        self.age_groups = {
+            'child': 'child[mh]',  # birth-18 years
+            'adult': 'adult[mh]',  # 19+ years  
+            'aged': 'aged[mh]',    # 65+ years
+            'infant': 'infant[mh]',  # birth-23 months
+            'infant_newborn': 'infant, newborn[mh]',  # birth-1 month
+            'child_preschool': 'child, preschool[mh]',  # 2-5 years
+            'adolescent': 'adolescent[mh]',  # 13-18 years
+            'young_adult': 'young adult[mh]',  # 19-24 years
+            'middle_aged': 'middle aged[mh]',  # 45-64 years
+            'aged_80_and_over': 'aged, 80 and over[mh]'  # 80+ years
+        }
+        
+        # Other filters
+        self.other_filters = {
+            'exclude_preprints': 'NOT preprint[pt]',
+            'medline': 'medline[sb]',
+            'pubmed_not_medline': 'pubmed not medline[sb]',
+            'in_process': 'in process[sb]',
+            'publisher': 'publisher[sb]',
+            'pmc': 'pmc[sb]',
+            'nihms': 'nihms[sb]'
+        }
 
-#         article_ids = response.json().get("esearchresult", {}).get("idlist", [])
-#         if not article_ids:
-#             logger.warning(f"⚠️ No articles found for topic '{topic}'")
-#             return False
+    def build_date_filter(self, date_option: str, start_date: Optional[str] = None, 
+                         end_date: Optional[str] = None) -> str:
+        """
+        Build date filter based on PubMed's date options
+        
+        Args:
+            date_option: '1_year', '5_years', '10_years', or 'custom'
+            start_date: Start date in YYYY/MM/DD format (for custom)
+            end_date: End date in YYYY/MM/DD format (for custom)
+        """
+        if date_option == 'custom':
+            if start_date and end_date:
+                return f'("{start_date}"[Date - Publication] : "{end_date}"[Date - Publication])'
+            elif start_date:
+                return f'"{start_date}"[Date - Publication] : 3000[Date - Publication]'
+            elif end_date:
+                return f'1900[Date - Publication] : "{end_date}"[Date - Publication]'
+        else:
+            # Calculate date range for 1, 5, or 10 years
+            years = int(date_option.split('_')[0])
+            end_date = datetime.now().strftime('%Y/%m/%d')
+            start_date = (datetime.now() - timedelta(days=365 * years)).strftime('%Y/%m/%d')
+            return f'("{start_date}"[Date - Publication] : "{end_date}"[Date - Publication])'
+        
+        return ""
 
-#         logger.info(f"✅ Found {len(article_ids)} articles. Fetching details...")
+    def parse_boolean_query(self, query: str) -> str:
+        """
+        Parse and validate boolean operators in the query
+        Supports AND, OR, NOT operators with proper PubMed syntax
+        """
+        # Clean up the query - remove extra spaces
+        query = re.sub(r'\s+', ' ', query.strip())
+        
+        # Validate boolean operators are properly formatted
+        # PubMed requires proper spacing around operators
+        query = re.sub(r'\s*\bAND\b\s*', ' AND ', query, flags=re.IGNORECASE)
+        query = re.sub(r'\s*\bOR\b\s*', ' OR ', query, flags=re.IGNORECASE)
+        query = re.sub(r'\s*\bNOT\b\s*', ' NOT ', query, flags=re.IGNORECASE)
+        
+        return query
 
-#         # Step 2: Fetch article details (batch fetch)
-#         details_params = {
-#             "db": "pubmed",
-#             "id": ",".join(article_ids),
-#             "retmode": "xml",
-#         }
-#         details_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
-#         details_response = requests.get(details_url, params=details_params)
-#         details_response.raise_for_status()
+    def build_complex_query(self, base_query: str, filters: Dict[str, Any]) -> str:
+        """
+        Build complex PubMed query with all filters and boolean operators
+        """
+        # Parse boolean operators in base query
+        processed_query = self.parse_boolean_query(base_query)
+        
+        filter_parts = []
+        
+        # Date filters
+        if 'publication_date' in filters:
+            date_filter = self.build_date_filter(
+                filters['publication_date'],
+                filters.get('custom_start_date'),
+                filters.get('custom_end_date')
+            )
+            if date_filter:
+                filter_parts.append(date_filter)
+        
+        # Text availability filters
+        if 'text_availability' in filters:
+            text_filters = []
+            for availability in filters['text_availability']:
+                if availability in self.text_availability:
+                    text_filters.append(self.text_availability[availability])
+            if text_filters:
+                filter_parts.append(f'({" OR ".join(text_filters)})')
+        
+        # Article type filters
+        if 'article_types' in filters:
+            article_filters = []
+            for article_type in filters['article_types']:
+                if article_type in self.article_types:
+                    article_filters.append(self.article_types[article_type])
+            if article_filters:
+                filter_parts.append(f'({" OR ".join(article_filters)})')
+        
+        # Language filters
+        if 'languages' in filters:
+            lang_filters = []
+            for lang in filters['languages']:
+                if lang in self.languages:
+                    lang_filters.append(self.languages[lang])
+            if lang_filters:
+                filter_parts.append(f'({" OR ".join(lang_filters)})')
+        
+        # Species filters
+        if 'species' in filters:
+            species_filters = []
+            for species in filters['species']:
+                if species in self.species:
+                    species_filters.append(self.species[species])
+            if species_filters:
+                filter_parts.append(f'({" OR ".join(species_filters)})')
+        
+        # Sex filters
+        if 'sex' in filters:
+            sex_filters = []
+            for sex in filters['sex']:
+                if sex in self.sex:
+                    sex_filters.append(self.sex[sex])
+            if sex_filters:
+                filter_parts.append(f'({" OR ".join(sex_filters)})')
+        
+        # Age filters
+        if 'age_groups' in filters:
+            age_filters = []
+            for age in filters['age_groups']:
+                if age in self.age_groups:
+                    age_filters.append(self.age_groups[age])
+            if age_filters:
+                filter_parts.append(f'({" OR ".join(age_filters)})')
+        
+        # Other filters
+        if 'other_filters' in filters:
+            for other_filter in filters['other_filters']:
+                if other_filter in self.other_filters:
+                    filter_parts.append(self.other_filters[other_filter])
+        
+        # Custom filters with boolean operators
+        if 'custom_filters' in filters:
+            for custom_filter in filters['custom_filters']:
+                processed_custom = self.parse_boolean_query(custom_filter)
+                filter_parts.append(f'({processed_custom})')
+        
+        # Combine all parts
+        if filter_parts:
+            final_query = f'({processed_query}) AND ({" AND ".join(filter_parts)})'
+        else:
+            final_query = processed_query
+        
+        return final_query
 
-#         # Step 3: Parse XML manually (lightweight)
-#         from xml.etree import ElementTree as ET
-#         root = ET.fromstring(details_response.content)
 
-#         docs = []
-#         articles_data = []
-#         for idx, article in enumerate(root.findall(".//PubmedArticle"), start=1):
-#             try:
-#                 pmid = article.findtext(".//PMID") or "unknown"
-#                 title = article.findtext(".//ArticleTitle") or "No Title"
-#                 abstract = " ".join([elem.text or "" for elem in article.findall(".//AbstractText")]).strip()
-#                 authors_list = article.findall(".//Author")
-#                 authors = "; ".join(
-#                     [f"{a.findtext('LastName', '')} {a.findtext('ForeName', '')}".strip() for a in authors_list if a.findtext('LastName')]
-#                 ) or "Unknown Authors"
-
-     
-#                 page_content = f"""[Article {idx}]
-#                 Title: {title}
-#                 **Authors**: {authors}
-#                 Publication ID: {pmid}
-#                 Abstract: {abstract}"""
-                
-
-#                 metadata = {
-#                     "pubmed_id": pmid,
-#                     "title": title,
-#                     "authors": authors,
-#                     "Article Number":idx,
-#                     "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
-#                 }
-
-#                 docs.append(Document(page_content=page_content, metadata=metadata))
-
-#                 # For Supabase (optional)
-#                 articles_data.append({
-#                     "topic_id": topic_id,
-#                     "pubmed_id": pmid,
-#                     "title": title,
-#                     "abstract": abstract,
-#                     "authors": authors,
-#                     "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
-#                 })
-#             except Exception as parse_err:
-#                 logger.warning(f"⚠️ Skipping malformed article: {parse_err}")
-
-#         logger.info(f"📄 Processed {len(docs)} valid articles.")
-
-#         # Step 4: Split documents
-      
-#         text_splitter = RecursiveCharacterTextSplitter(
-#             chunk_size=3000,    # increase chunk size enough to hold entire article
-#             chunk_overlap=0,    # no overlap needed if you want clean, separate chunks
-#             separators=["\n\n", "\n", ".", " "]  # allow splitting at paragraphs or sentences if needed
-#         )
-
-#         split_docs = text_splitter.split_documents(docs)
-
-#         # Step 5: Create and save vector store
-#         temp = FAISS.from_documents(split_docs, embeddings)
-#         temp.save_local(f"vectorstores/{topic_id}")
-#         ids = vector_store.add_documents(documents=split_docs)
-#         logger.info(f"✅ Vector store created and saved for topic_id '{topic_id}'")
-
-#         # Step 6 (optional): Store metadata in Supabase
-#         if supabase:
-#             supabase.table("topics").update({
-#                 "status": "completed"
-#             }).eq("id", topic_id).execute()
-
-#             supabase.table("articles").insert(articles_data).execute()
-#             logger.info(f"✅ Stored {len(articles_data)} articles metadata to Supabase.")
-
-#         return True
-
-#     except Exception as e:
-#         logger.error(f"❌ Error in fetch_and_create_vectorstore: {str(e)}")
-#         if supabase:
-#             supabase.table("topics").update({"status": f"error: {str(e)}", "article_count": 0}).eq("id", topic_id).execute()
-#         return False
-
-async def fetch_pubmed_data(topic: str, topic_id: str, max_results: int):
-    """Fetch PubMed articles and create vector store with proper content/metadata separation"""
+async def fetch_pubmed_data(topic: str, topic_id: str, max_results: int, 
+                           filters: Optional[Dict[str, Any]] = None):
+    """
+    Fetch PubMed articles with comprehensive filtering matching PubMed's interface
+    
+    Args:
+        topic: Search topic/query (supports AND, OR, NOT operators)
+        topic_id: Unique identifier for the topic
+        max_results: Maximum number of results to fetch
+        filters: Dictionary containing filter options
+    """
     try:
         logger.info(f"🔍 Fetching PubMed articles for topic '{topic}' (max {max_results})")
+        
+        # Initialize filter builder
+        filter_builder = PubMedFilters()
+        
+        # Build complete search query with filters
+        if filters:
+            search_query = filter_builder.build_complex_query(topic, filters)
+        else:
+            search_query = filter_builder.parse_boolean_query(topic)
+        
+        logger.info(f"🔍 Final search query: {search_query}")
 
         # Step 1: Search PubMed for relevant article IDs
         search_params = {
             "db": "pubmed",
-            "term": topic,
+            "term": search_query,
             "retmode": "json",
             "retmax": max_results,
+            "sort": filters.get('sort_by', 'relevance') if filters else 'relevance',
+            "field": filters.get('search_field', 'title/abstract') if filters else 'title/abstract'
         }
+        
         search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
         response = requests.get(search_url, params=search_params)
         response.raise_for_status()
 
-        article_ids = response.json().get("esearchresult", {}).get("idlist", [])
+        search_result = response.json().get("esearchresult", {})
+        article_ids = search_result.get("idlist", [])
+        total_count = search_result.get("count", "0")
+        
         if not article_ids:
-            logger.warning(f"⚠️ No articles found for topic '{topic}'")
+            logger.warning(f"⚠️ No articles found for topic '{topic}' with applied filters")
+            logger.info(f"📊 Total available articles: {total_count}")
             return False
 
-        logger.info(f"✅ Found {len(article_ids)} articles. Fetching details...")
+        logger.info(f"✅ Found {len(article_ids)} articles (total available: {total_count}). Fetching details...")
 
         # Step 2: Fetch article details (batch fetch)
         details_params = {
@@ -944,11 +1112,10 @@ async def fetch_pubmed_data(topic: str, topic_id: str, max_results: int):
                 # Add chunks as documents
                 for chunk in content_chunks:
                     docs.append(Document(
-                        page_content=chunk['content'],  # Only content for embedding
-                        metadata=chunk['metadata']      # Rich metadata for filtering/citations
+                        page_content=chunk['content'],
+                        metadata=chunk['metadata']
                     ))
 
-              
                 articles_data.append({
                     "topic_id": topic_id,
                     "pubmed_id": article_data['pmid'],
@@ -961,13 +1128,13 @@ async def fetch_pubmed_data(topic: str, topic_id: str, max_results: int):
             except Exception as parse_err:
                 logger.warning(f"⚠️ Skipping malformed article: {parse_err}")
 
-        logger.info(f"📄 Processed {len(docs)} content chunks from articles.")
+        logger.info(f"📄 Processed {len(docs)} content chunks from {len(articles_data)} articles.")
 
         if not docs:
             logger.warning(f"⚠️ No valid articles to process for topic '{topic}'")
             return False
 
-        # Step 4: Create vector store (no additional splitting needed - already chunked)
+        # Step 4: Create vector store
         temp = FAISS.from_documents(docs, embeddings)
         temp.save_local(f"vectorstores/{topic_id}")
         ids = vector_store.add_documents(documents=docs)
@@ -975,7 +1142,10 @@ async def fetch_pubmed_data(topic: str, topic_id: str, max_results: int):
 
         if supabase:
             supabase.table("topics").update({
-                "status": "completed"
+                "status": "completed",
+                "total_articles_found": total_count,
+                "article_count": len(articles_data),
+                "filters": filters
             }).eq("id", topic_id).execute()
 
             supabase.table("articles").insert(articles_data).execute()
@@ -986,8 +1156,9 @@ async def fetch_pubmed_data(topic: str, topic_id: str, max_results: int):
 
     except Exception as e:
         logger.error(f"❌ Error fetching PubMed data: {e}")
+        if supabase:
+            supabase.table("topics").update({"status": f"error: {str(e)}", "article_count": 0}).eq("id", topic_id).execute()
         return False
-
 
 def extract_enhanced_article_data(article, idx):
     """Extract comprehensive article data with proper error handling"""
@@ -1227,8 +1398,8 @@ Abstract: {abstract}"""
     
     return chunks
 
-async def fetch_data_background(topic: str, topic_id: str, max_results: int):
-    """Background task to fetch data from PubMed"""
+async def fetch_data_background(topic: str, topic_id: str, max_results: int, filters: Optional[Dict[str, Any]] = None):
+    """Background task to fetch data from PubMed with filters"""
     try:
         background_tasks_status[topic_id] = "processing"
         
@@ -1237,7 +1408,7 @@ async def fetch_data_background(topic: str, topic_id: str, max_results: int):
         try:
             # Run with timeout
             success = await asyncio.wait_for(
-                fetch_pubmed_data(topic, topic_id, max_results),
+                fetch_pubmed_data(topic, topic_id, max_results, filters),
                 timeout=fetch_timeout
             )
             
@@ -1303,20 +1474,22 @@ async def fetch_topic_data(request: TopicRequest, background_tasks: BackgroundTa
         # Generate a unique topic ID
         topic_id = str(uuid.uuid4())
         
-        # Create initial record in Supabase
+        # Create initial record in Supabase with filters
         supabase.table("topics").insert({
             "id": topic_id,
             "topic": request.topic,
-            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "filters": request.filters,  # Store filters for reference
+            "created_at": datetime.utcnow().isoformat() + "Z",
             "status": "processing"
         }).execute()
         
-        # Start background task to fetch and store data
+        # Start background task to fetch and store data with filters
         background_tasks.add_task(
             fetch_data_background, 
             request.topic, 
             topic_id, 
-            request.max_results
+            request.max_results,
+            request.filters  # Pass filters to background task
         )
         
         return {
@@ -1349,6 +1522,7 @@ def get_or_create_chain(topic_id: str, conversation_id: str , query:str):
     # retriever = vector_store.as_retriever(search_kwargs={"k": 3})
     retriever = get_vectorstore_retriever(topic_id,query)
 
+    # ADD THESE LINES TO VERIFY RETRIEVAL
     try:
         test_docs = retriever.get_relevant_documents(query[:100])  # Use truncated query for test
         unique_pmids = set(doc.metadata.get('pubmed_id') for doc in test_docs if doc.metadata.get('pubmed_id'))
@@ -1356,10 +1530,6 @@ def get_or_create_chain(topic_id: str, conversation_id: str , query:str):
     except Exception as e:
         logger.warning(f"Could not test retriever: {e}")
     # END OF ADDED LINES
-    
-    # Create the chain
-    logger.info(f"Chain components: LLM type: {type(llm).__name__}, " 
-                   f"Retriever type: {type(retriever).__name__}")
     
     # Create the chain
     logger.info(f"Chain components: LLM type: {type(llm).__name__}, " 
@@ -1467,7 +1637,6 @@ async def answer_query(request: QueryRequest):
     
    
 
-@app.get("/topic/{topic_id}/articles")
 async def get_topic_articles(topic_id: str, limit: int = 100, offset: int = 0):
     """
     Fetch all articles for a specific topic
@@ -1539,6 +1708,111 @@ async def check_topic_status(topic_id: str):
     """
     status = check_topic_fetch_status(topic_id)
     return {"topic_id": topic_id, "status": status}
+
+@app.get("/topic/{topic_id}/articles")
+async def get_topic_articles(topic_id: str, limit: int = 100, offset: int = 0):
+    """
+    Fetch all articles for a specific topic
+    """
+    try:
+        # Check if Supabase is connected
+        if not supabase:
+            raise HTTPException(
+                status_code=503,
+                detail="Database connection not available"
+            )
+            
+        # First verify the topic exists
+        topic_result = supabase.table("topics").select("*").eq("id", topic_id).execute()
+        
+        if not topic_result.data:
+            raise HTTPException(
+                status_code=404,
+                detail="Topic not found"
+            )
+            
+        # Check if data fetching is complete
+        status = check_topic_fetch_status(topic_id)
+        if status != "completed":
+            return {
+                "topic_id": topic_id,
+                "status": status,
+                "articles": [],
+                "message": "Data is still being processed or had an error"
+            }
+        
+        # Fetch articles with pagination
+        articles_result = supabase.table("articles") \
+            .select("*") \
+            .eq("topic_id", topic_id) \
+            .range(offset, offset + limit - 1) \
+            .execute()
+            
+        # Get the total count (for pagination info)
+        count_result = supabase.table("articles") \
+            .select("id", count="exact") \
+            .eq("topic_id", topic_id) \
+            .execute()
+        
+        total_count = count_result.count if hasattr(count_result, "count") else len(articles_result.data)
+        
+        return {
+            "topic_id": topic_id,
+            "status": "completed",
+            "articles": articles_result.data,
+            "pagination": {
+                "total": total_count,
+                "limit": limit,
+                "offset": offset,
+                "has_more": (offset + limit) < total_count
+            }
+        }
+        
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
+    except Exception as e:
+        logger.error(f"Error fetching articles for topic {topic_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/test-filters")
+async def test_filters(request: TopicRequest):
+    """Test endpoint to validate filter query construction"""
+    try:
+        filter_builder = PubMedFilters()
+        
+        if request.filters:
+            final_query = filter_builder.build_complex_query(request.topic, request.filters)
+        else:
+            final_query = filter_builder.parse_boolean_query(request.topic)
+        
+        return {
+            "original_query": request.topic,
+            "filters": request.filters,
+            "final_pubmed_query": final_query
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/debug/check-articles/{topic_id}")
+async def check_article_retrieval(topic_id: str):
+    """Debug endpoint to verify article retrieval"""
+    try:
+        # Test with a generic query
+        retriever = get_vectorstore_retriever(topic_id, "test query")
+        docs = retriever.get_relevant_documents("research")
+        
+        # Count unique articles
+        pmids = [doc.metadata.get('pubmed_id') for doc in docs if doc.metadata.get('pubmed_id')]
+        unique_pmids = set(pmids)
+        
+        return {
+            "status": "success",
+            "total_chunks": len(docs),
+            "unique_articles": len(unique_pmids),
+            "articles_found": list(unique_pmids)[:10]  # First 10 for preview
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @app.get("/health")
 def health_check():

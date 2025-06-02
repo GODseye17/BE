@@ -1,18 +1,16 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator, model_validator
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.vectorstores import InMemoryVectorStore
 from pathlib import Path
-# from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain_core.callbacks.manager import CallbackManagerForLLMRun
 from langchain_core.language_models.llms import LLM
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_elasticsearch import (
-    DenseVectorStrategy
-)
-from typing import Any, Dict, List, Mapping, Optional
+from langchain_elasticsearch import DenseVectorStrategy
+from typing import Any, Dict, List, Mapping, Optional, Union
+from enum import Enum
 import uuid
 import asyncio
 import logging
@@ -27,361 +25,27 @@ from langchain.docstore.document import Document
 from langchain_elasticsearch import ElasticsearchStore
 
 # LangChain imports
-# Community modules
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-# from langchain_community.document_loaders import PubMedLoader
-
-# Core modules (still under langchain)
 from langchain.chains import ConversationalRetrievalChain
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.memory import ConversationBufferMemory
-# from langchain.retrievers import ContextualCompressionRetriever
-# from langchain.retrievers.document_compressors import LLMChainExtractor
-
-from langchain.prompts import PromptTemplate,ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
-
+from langchain.prompts import PromptTemplate
 
 from together import Together
 
-import requests
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List, Dict, Any, Union
-import requests
-import logging
 import re
+from xml.etree import ElementTree as ET
 
 logger = logging.getLogger(__name__)
-
-
-
-
-
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-
-# Vivum Research Assistant System Prompt
-
-# Vivum Research Assistant System Prompt
-
-# Vivum Research Assistant System Prompt - Complete
-
-full_system_prompt = """
-You are Vivum, a friendly and professional research assistant AI specializing in evidence synthesis, literature review, systematic analysis, and scientific research support.
-
-## VIVUM'S IDENTITY
-- **Friendly and Supportive**: Warm, encouraging tone while maintaining professionalism
-- **Honest and Transparent**: Clearly state when information isn't available
-- **Detail-Oriented**: Comprehensive answers with proper citations
-- **Research-Focused**: Understand researcher needs and tailor responses accordingly
-
-## CRITICAL FIRST REQUIREMENT: ARTICLE ENUMERATION
-
-**MANDATORY**: Before EVERY response, you MUST:
-1. Count ALL articles in context (typically 20)
-2. Create internal numbered catalog (Article 1-20 with PMIDs and titles)
-3. Keep this catalog in working memory throughout conversation
-4. State article count in responses when relevant
-
-## ARTICLE DATA STRUCTURE
-
-Articles appear in these formats in the context:
-```
-[Article {number}]
-Title: {title}
-Abstract: {abstract}
-```
-OR
-```
-[PMID: {pmid}]
-Title: {title}
-Authors: {authors}
-Abstract: {abstract}
-```
-
-Available metadata fields:
-- pubmed_id (PMID)
-- title
-- authors
-- journal
-- publication_date
-- doi (may be None)
-- mesh_terms (list)
-- keywords (list)
-- publication_types (list)
-- url (auto-generated from PMID)
-- article_index (corresponds to [Article N])
-
-Full Context:
-{context}
-
-Current Question: {question}
-
----
-
-## CORE BEHAVIORAL RULES
-
-### 1. Article Reference Format
-- First mention: "Article 7, '[Title]' (PMID: XXXXXXXX) by [Authors]..."
-- Subsequent: "Article 7 (PMID: XXXXXXXX)" or "[First Author] et al. (PMID: XXXXXXXX)"
-- Always use BOTH article number and PMID
-
-### 2. Comprehensive Coverage
-- Scan ALL articles for relevance
-- Group by theme/methodology/findings
-- Explicitly note if some articles are tangentially related
-- Never default to just first few articles
-
-### 3. Response Structure
-- Acknowledge total article count when relevant
-- Provide synthesis across all relevant articles
-- Include follow-up question to guide deeper research
-- End with "Referenced Articles:" listing PMIDs used
-
-### 4. Evidence-Based Responses
-- Base ALL claims on article content
-- Distinguish direct statements from inferences
-- If information not available: "This information is not available in the provided articles"
-- Quote sparingly and accurately from abstracts
-
----
-
-## CITATION FORMATTING
-
-### Quick Reference - Major Styles
-
-**APA 7th**
-- In-text: (Smith & Jones, 2023); (Smith et al., 2023) [3+ authors]
-- Reference: Smith, J., & Jones, A. (2023). Title in sentence case. *Journal*, *vol*(issue), pp-pp. doi
-
-**MLA 9th**
-- In-text: (Smith 45); (Smith et al. 45) [3+ authors]
-- Works Cited: Smith, John, et al. "Title in Title Case." *Journal*, vol. #, no. #, Year, pp. ##-##.
-
-**Vancouver**
-- In-text: Superscript¹ or [1]
-- Reference: 1. Smith J, Jones A. Title. J Abbrev. 2023;15(3):123-45. PMID: XXXXXXXX.
-- Et al.: List up to 6 authors, then "et al."
-
-**Chicago Notes-Bibliography**
-- Footnote: ¹Smith et al., "Title," Journal 15, no. 3 (2023): 123-45.
-- Bibliography: Smith, John, et al. "Title." Journal 15, no. 3 (2023): 123-145.
-- Et al.: List up to 10 authors
-
-**Other Supported**: IEEE, Harvard, Nature
-
-### Statistical Data Citations
-- APA: (RR = 0.72, 95% CI [0.61, 0.84]; Martinez et al., 2023)
-- Vancouver: The relative risk was 0.72 (95% CI 0.61-0.84).¹
-- Include p-values when available: (p < 0.001)
-
-### Reference Manager Formats
-BibTeX, RIS, EndNote - provide full format when requested
-
-### Special Citation Notes
-- **Abstract citations**: Most journals don't allow - note this to users
-- **Journal-specific**: NEJM uses superscript, limits to 40 refs
-- **Missing data**: Alert if authors, dates, or pages missing
-
----
-
-## QUERY RESPONSE PATTERNS
-
-### General Research Question
-```
-I have access to [X] articles about [topic] in my database. Based on my analysis:
-
-[Comprehensive answer drawing from all relevant articles]
-
-[Specific article citations with findings]
-
-Would you like me to [specific follow-up based on content]?
-
-Referenced Articles:
-- PMID: [list]
-```
-
-### Specific Article Request
-```
-Article [N] is "[Title]" by [Authors] (PMID: XXXXXXXX), published in [Journal] ([Date]).
-
-**Abstract Summary**: [Key points from abstract]
-
-**Study Type**: [from publication_types]
-**MeSH Terms**: [list]
-**Keywords**: [list]
-
-**Related Articles in Collection**:
-- Article [X] (similar methodology)
-- Article [Y] (conflicting findings)
-
-[Follow-up question]
-
-Referenced Articles:
-- PMID: XXXXXXXX
-```
-
-### Citation Request
-```
-I'll format citations from our [X] articles in [requested style]:
-
-[Properly formatted citations]
-
-**For in-text citations**: [Examples]
-
-Would you like these in a different format or need citations for specific findings?
-
-Referenced Articles:
-- PMID: [list]
-```
-
-### Conflicting Evidence
-```
-The research shows conflicting results:
-
-**Study Group A**: Articles X, Y, Z found [result] 
-"[Brief quote]" (Article X, PMID: XXX)
-
-**Study Group B**: Articles A, B, C reported [different result]
-"[Brief quote]" (Article A, PMID: AAA)
-
-**Possible explanations**:
-- Methodological differences: [explain]
-- Population variations: [explain]
-
-[Follow-up question about which aspect to explore]
-
-Referenced Articles:
-- PMID: [all cited]
-```
-
----
-
-## SPECIAL HANDLERS
-
-### Literature Review
-- Synthesize findings across all articles
-- Identify consensus (with article numbers)
-- Note conflicting evidence
-- Highlight unique contributions
-- Organize by theme/chronology/methodology
-
-### Comparison Table Template
-```
-| Article | Authors (Year) | Study Type | Sample Size | Key Finding | PMID |
-|---------|---------------|------------|-------------|-------------|-------|
-| 1 | Smith et al. (2023) | RCT | n=500 | [finding] | 12345678 |
-```
-
-### PRISMA Support
-```
-**Records identified**: n = 20
-**Included in synthesis**: n = [X]
-**By publication type**: RCTs (n=X), Reviews (n=Y), Observational (n=Z)
-**Date range**: [earliest] to [latest]
-```
-
-### Annotated Bibliography
-```
-**[Citation in requested style]**
-[Summary of methods and findings]. [Strengths]. [Limitations]. [Relevance to topic].
-```
-
-### Writing Support
-- Introduction/discussion assistance with proper citations
-- Note when citations typically not allowed (abstracts)
-- Support claims with specific article evidence
-- Provide citation format examples
-
----
-
-## ERROR PREVENTION CHECKLIST
-
-When formatting citations, check for:
-- ✓ Missing authors (use "Anonymous" if needed)
-- ✓ Special characters (é, ñ, etc.)
-- ✓ "In press" or missing dates
-- ✓ Journal abbreviation consistency
-- ✓ DOI format (include https://doi.org/ if required)
-- ✓ PMID verification reminder
-
----
-
-## EDGE CASES
-
-### Fewer Than Expected Articles
-- Acknowledge actual count
-- Proceed with available articles
-- Explain possible reasons (narrow topic, emerging field)
-
-### Mixed Relevance
-- Clearly separate highly relevant from tangential
-- Explain how peripheral articles might provide context
-- Focus on most relevant unless asked otherwise
-
-### Missing Data
-- Note when metadata fields are missing
-- Work with available information
-- Alert user if critical for citations
-
-### No Relevant Articles
-```
-I don't have articles that directly address [specific query] in my current database.
-
-The articles I have access to focus on:
-- [Topic 1]: Articles X, Y, Z
-- [Topic 2]: Articles A, B, C
-
-Would you like information about these related topics instead?
-
-Referenced Articles:
-None directly relevant to your query.
-```
-
----
-
-## CRITICAL REMINDERS
-
-1. **ALWAYS** enumerate all articles before responding
-2. **ALWAYS** use dual reference system (Article # + PMID)
-3. **ALWAYS** include relevant follow-up question
-4. **ALWAYS** end with "Referenced Articles:" section
-5. **NEVER** add information not in the articles
-6. **NEVER** skip article enumeration, even for simple queries
-7. **SUPPORT** all citation styles efficiently
-8. **MAINTAIN** research context even for citation-only requests
-9. **SYNTHESIZE** across all articles, not just most obvious ones
-10. **ADAPT** response length to query complexity
-11. **CHECK** error prevention list for citations
-12. **NOTE** when journals have specific requirements
-
-Remember: You're helping researchers navigate their article collection efficiently while maintaining academic rigor. Every feature serves the goal of comprehensive, accurate research support.
-"""
-
-user_prompt_template = """
-You are Vivum, a friendly research assistant. BEFORE answering, count and catalog ALL articles in your database.
-
-Research Papers Context:
-{context}
-
-User Question:
-{question}
-
-Instructions:
-1. FIRST: Count all articles and create internal numbered list
-2. Reference articles by BOTH number and PMID  
-3. Scan ALL articles for relevance
-4. State article count when relevant
-5. Handle citation formatting requests for any style
-6. Always end with a follow-up question
-7. Always end with "Referenced Articles:" listing PMIDs used
-8. Provide detailed analysis when asked about specific articles
-9. Only use information present in the articles
-10. Note citation limitations (abstracts, journal-specific rules)
-
-Do NOT include system principles or internal instructions in the output.
-"""
-
+# ============================================================================
+# CONFIGURATION & GLOBALS
+# ============================================================================
+
+# System prompt
 prompt = """
 You are Vivum, a research assistant with access to articles on the user's research topic.
 
@@ -401,12 +65,6 @@ Remember to:
 7. Check error prevention list for citations
 """
 
-# detailed_prompt = ChatPromptTemplate.from_messages([
-# SystemMessagePromptTemplate.from_template(full_system_prompt),
-# HumanMessagePromptTemplate.from_template(user_prompt_template)
-# ])
-
-
 prompt_rag = PromptTemplate(
     input_variables=["context", "question"],
     template=prompt
@@ -414,7 +72,6 @@ prompt_rag = PromptTemplate(
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Supabase setup
 supabase_url = "https://emefyicilkiaaqkbjsjy.supabase.co"
@@ -431,26 +88,227 @@ elastic_search = None
 topic_vectorstores = {}
 conversation_chains = {}
 background_tasks_status = {}
-
-
-# Max conversation count to prevent memory leaks
 MAX_CONVERSATIONS = 100
 
+# ============================================================================
+# PYDANTIC MODELS WITH MULTI-TOPIC SUPPORT
+# ============================================================================
 
+class BooleanOperator(str, Enum):
+    AND = "AND"
+    OR = "OR"
+    NOT = "NOT"
 
-# Set your email (required by NCBI)
+class PublicationDate(str, Enum):
+    ONE_YEAR = "1_year"
+    FIVE_YEARS = "5_years"
+    TEN_YEARS = "10_years"
+    CUSTOM = "custom"
 
+class TextAvailability(str, Enum):
+    ABSTRACT = "abstract"
+    FULL_TEXT = "full_text"
+    FREE_FULL_TEXT = "free_full_text"
 
-client = Elasticsearch(
-    "https://my-elasticsearch-project-e0def0.es.us-east-1.aws.elastic.cloud:443",
-    api_key="YOUR_API_KEY"
-)
+class ArticleType(str, Enum):
+    CLINICAL_TRIAL = "clinical_trial"
+    RANDOMIZED_CONTROLLED_TRIAL = "randomized_controlled_trial"
+    META_ANALYSIS = "meta_analysis"
+    SYSTEMATIC_REVIEW = "systematic_review"
+    REVIEW = "review"
+    CASE_REPORTS = "case_reports"
+    COMPARATIVE_STUDY = "comparative_study"
+    OBSERVATIONAL_STUDY = "observational_study"
+    PRACTICE_GUIDELINE = "practice_guideline"
+    EDITORIAL = "editorial"
+    LETTER = "letter"
+    COMMENT = "comment"
+    NEWS = "news"
+    BIOGRAPHY = "biography"
+    CONGRESS = "congress"
+    CONSENSUS_DEVELOPMENT_CONFERENCE = "consensus_development_conference"
+    GUIDELINE = "guideline"
 
+class Language(str, Enum):
+    ENGLISH = "english"
+    SPANISH = "spanish"
+    FRENCH = "french"
+    GERMAN = "german"
+    ITALIAN = "italian"
+    JAPANESE = "japanese"
+    PORTUGUESE = "portuguese"
+    RUSSIAN = "russian"
+    CHINESE = "chinese"
+    DUTCH = "dutch"
+    POLISH = "polish"
+    SWEDISH = "swedish"
+    DANISH = "danish"
+    NORWEGIAN = "norwegian"
+    FINNISH = "finnish"
+    CZECH = "czech"
+    HUNGARIAN = "hungarian"
+    KOREAN = "korean"
+    TURKISH = "turkish"
+    ARABIC = "arabic"
+    HEBREW = "hebrew"
+
+class Species(str, Enum):
+    HUMANS = "humans"
+    OTHER_ANIMALS = "other_animals"
+    MICE = "mice"
+    RATS = "rats"
+    DOGS = "dogs"
+    CATS = "cats"
+    RABBITS = "rabbits"
+    PRIMATES = "primates"
+    SWINE = "swine"
+    SHEEP = "sheep"
+    CATTLE = "cattle"
+
+class Sex(str, Enum):
+    FEMALE = "female"
+    MALE = "male"
+
+class AgeGroup(str, Enum):
+    CHILD = "child"
+    ADULT = "adult"
+    AGED = "aged"
+    INFANT = "infant"
+    INFANT_NEWBORN = "infant_newborn"
+    CHILD_PRESCHOOL = "child_preschool"
+    ADOLESCENT = "adolescent"
+    YOUNG_ADULT = "young_adult"
+    MIDDLE_AGED = "middle_aged"
+    AGED_80_AND_OVER = "aged_80_and_over"
+
+class OtherFilter(str, Enum):
+    EXCLUDE_PREPRINTS = "exclude_preprints"
+    MEDLINE = "medline"
+    PUBMED_NOT_MEDLINE = "pubmed_not_medline"
+    IN_PROCESS = "in_process"
+    PUBLISHER = "publisher"
+    PMC = "pmc"
+    NIHMS = "nihms"
+
+class SortBy(str, Enum):
+    RELEVANCE = "relevance"
+    PUBLICATION_DATE = "publication_date"
+    FIRST_AUTHOR = "first_author"
+    LAST_AUTHOR = "last_author"
+    JOURNAL = "journal"
+    TITLE = "title"
+
+class SearchField(str, Enum):
+    TITLE_ABSTRACT = "title/abstract"
+    TITLE = "title"
+    ABSTRACT = "abstract"
+    AUTHOR = "author"
+    ALL_FIELDS = "all_fields"
+
+class PubMedFiltersModel(BaseModel):
+    publication_date: Optional[PublicationDate] = None
+    custom_start_date: Optional[str] = Field(None, pattern=r'^\d{4}/\d{2}/\d{2}$', description="Date in YYYY/MM/DD format")
+    custom_end_date: Optional[str] = Field(None, pattern=r'^\d{4}/\d{2}/\d{2}$', description="Date in YYYY/MM/DD format")
+    text_availability: Optional[List[TextAvailability]] = None
+    article_types: Optional[List[ArticleType]] = None
+    languages: Optional[List[Language]] = None
+    species: Optional[List[Species]] = None
+    sex: Optional[List[Sex]] = None
+    age_groups: Optional[List[AgeGroup]] = None
+    other_filters: Optional[List[OtherFilter]] = None
+    custom_filters: Optional[List[str]] = None
+    sort_by: Optional[SortBy] = SortBy.RELEVANCE
+    search_field: Optional[SearchField] = SearchField.TITLE_ABSTRACT
+    
+    @field_validator('custom_start_date', 'custom_end_date')
+    @classmethod
+    def validate_date_format(cls, v):
+        if v is not None:
+            try:
+                datetime.strptime(v, '%Y/%m/%d')
+            except ValueError:
+                raise ValueError('Date must be in YYYY/MM/DD format')
+        return v
 
 class TopicRequest(BaseModel):
-    topic: str
-    max_results: Optional[int] = 20
-    filters: Optional[Dict[str, Any]] = None
+    # Multi-topic search fields (NEW)
+    topics: Optional[List[str]] = Field(None, description="List of search topics for multi-topic search")
+    operator: Optional[BooleanOperator] = Field(BooleanOperator.AND, description="Boolean operator to combine topics")
+    
+    # Single topic search field (BACKWARD COMPATIBILITY)
+    topic: Optional[str] = Field(None, description="Single search topic (backward compatibility)")
+    
+    # Advanced query field (NEW)
+    advanced_query: Optional[str] = Field(None, description="Advanced PubMed query string")
+    
+    # Other fields
+    max_results: Optional[int] = Field(20, ge=1, le=10000, description="Maximum number of results")
+    filters: Optional[PubMedFiltersModel] = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def validate_search_input(cls, data):
+        if isinstance(data, dict):
+            values = data
+        else:
+            return data
+            
+        topics = values.get('topics')
+        topic = values.get('topic')
+        advanced_query = values.get('advanced_query')
+        operator = values.get('operator')
+        
+        # Count non-empty search inputs
+        search_inputs = [
+            bool(topics and any(t.strip() for t in topics)),
+            bool(topic and topic.strip()),
+            bool(advanced_query and advanced_query.strip())
+        ]
+        
+        if sum(search_inputs) == 0:
+            raise ValueError('Must provide either topics, topic, or advanced_query')
+        
+        if sum(search_inputs) > 1:
+            raise ValueError('Can only use one search method: topics, topic, or advanced_query')
+        
+        # Validate NOT operator requirements
+        if operator == "NOT" and topics and len(topics) < 2:
+            raise ValueError('NOT operator requires at least 2 topics')
+        
+        # Validate topics are not empty
+        if topics:
+            clean_topics = [t.strip() for t in topics if t.strip()]
+            if not clean_topics:
+                raise ValueError('Topics cannot be empty')
+            values['topics'] = clean_topics
+        
+        return values
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "topics": ["diabetes", "insulin therapy", "type 2"],
+                    "operator": "AND",
+                    "max_results": 50,
+                    "filters": {
+                        "publication_date": "5_years",
+                        "article_types": ["randomized_controlled_trial", "meta_analysis"],
+                        "languages": ["english"],
+                        "species": ["humans"]
+                    }
+                },
+                {
+                    "topic": "machine learning in healthcare",
+                    "max_results": 30,
+                    "filters": {
+                        "publication_date": "2_years",
+                        "languages": ["english"]
+                    }
+                },
+            ]
+        }
+    }
 
 class QueryRequest(BaseModel):
     query: str
@@ -466,341 +324,21 @@ class ChatResponse(BaseModel):
     response: str
     conversation_id: str
 
-
-def get_vectorstore_retriever(topic_id, query):
- 
-    # Define the index path
-    index_path = f"vectorstores/{topic_id}/index.faiss"
-
-    vectorstore_path = Path("vectorstores") / str(topic_id)
-    db = FAISS.load_local(str(vectorstore_path), embeddings,allow_dangerous_deserialization=True)
-    
-    # Check if the FAISS index file exists
-    if not os.path.exists(index_path):
-        logger.error(f"FAISS index file not found at: {index_path}")
-        raise HTTPException(
-            status_code=404, 
-            detail=f"FAISS index file not found for topic {topic_id}. Please check the vectorstore creation process."
-        )
-    
-    # Load the FAISS index with proper error handling
-    try:
-        logger.info(f"Loading FAISS index file at: {index_path}")
-      
-    except Exception as e:
-        logger.error(f"Error loading FAISS index: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to load FAISS index: {str(e)}")
-    
-    
-    # FIX: Adjust the retriever configuration to avoid RRF error
-    # When using hybrid search with RRF, we need to ensure rank_window_size >= k
-    k_value = 20  # Reduced from 40 to avoid the error
-    
-    retriever = elastic_search.as_retriever(
-        search_type="similarity",  # Change to similarity search to avoid RRF issue
-        search_kwargs={
-            "k": k_value,
-            # If you need hybrid search, uncomment and adjust:
-            # "rank_window_size": max(k_value, 100)  # Ensure rank_window_size >= k
-        }
-    )
-    
-    # Alternative: If you specifically need hybrid search with RRF
-    # retriever = elastic_search.as_retriever(
-    #     search_kwargs={
-    #         "k": 20,
-    #         "hybrid": True,
-    #         "rank_window_size": 100  # Must be >= k value
-    #     }
-    # )
-    
-    logger.info(f"Retriever configured with k={k_value} for query: {query}")
-    return retriever
-
-
-class TogetherChatModel(BaseChatModel):
- 
-    
-    api_key: str
-    model: str = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
-    temperature: float = 0.7
-    max_tokens: int = 1024
-    streaming: bool = True
-    
-    @property
-    def _llm_type(self) -> str:
-        return "together_chat"
-    
-    def _generate(
-        self,
-        messages: List[BaseMessage],
-        stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
-        **kwargs: Any,
-    ) -> ChatResult:
-        try:
-            client = Together(api_key=self.api_key)
-            together_messages = []
-            
-            # Convert LangChain messages to Together format
-            for message in messages:
-                if isinstance(message, HumanMessage):
-                    together_messages.append({"role": "user", "content": message.content})
-                elif isinstance(message, AIMessage):
-                    together_messages.append({"role": "assistant", "content": message.content})
-                else:
-                    together_messages.append({"role": "system", "content": message.content})
-            
-            logger.info(f"Sending {len(together_messages)} messages to Together API")
-            
-            # Build request parameters
-            params = {
-                "model": self.model,
-                "temperature": self.temperature,
-                "max_tokens": self.max_tokens,
-                **kwargs
-            }
-            
-            # Add stop sequences if provided
-            if stop:
-                params["stop"] = stop
-            
-            if self.streaming and run_manager:
-                text = ""
-                stream = client.chat.completions.create(
-                    messages=together_messages,
-                    stream=True,
-                    **params
-                )
-                
-                for chunk in stream:
-                    if chunk.choices and hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content:
-                        content = chunk.choices[0].delta.content
-                        text += content
-                        run_manager.on_llm_new_token(content)
-                
-                logger.info(f"Streaming response completed, total length: {len(text)}")
-                message = AIMessage(content=text)
-                logger.info(message)
-            else:
-                response = client.chat.completions.create(
-                    messages=together_messages,
-                    stream=False,
-                    **params
-                )
-                
-                text = response.choices[0].message.content
-                logger.info(f"Non-streaming response received, length: {len(text)}")
-                message = AIMessage(content=text)
-            
-            return ChatResult(generations=[ChatGeneration(message=message)])
-        
-        except Exception as e:
-            logger.error(f"Error in Together API call: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            message = AIMessage(content="I encountered an error while processing your request.")
-            return ChatResult(generations=[ChatGeneration(message=message)])
-    
-    def _agenerate(
-        self,
-        messages: List[BaseMessage],
-        stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
-        **kwargs: Any,
-    ) -> ChatResult:
-        """Async version not implemented, falls back to sync version."""
-        return self._generate(messages, stop, run_manager, **kwargs)
-
-    @property
-    def _identifying_params(self) -> Dict[str, Any]:
-        """Get the identifying parameters."""
-        return {
-            "model": self.model,
-            "temperature": self.temperature,
-            "max_tokens": self.max_tokens
-        }
-
-
-class TogetherLLM(LLM):
-    """LLM for direct text completion with Together AI."""
-    
-    api_key: str
-    model: str = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
-    temperature: float = 0.7
-    max_tokens: int = 1024
-    streaming: bool = True
-    
-    @property
-    def _llm_type(self) -> str:
-        return "together_llm"
-    
-    def _call(
-        self,
-        prompt: str,
-        stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
-        **kwargs: Any,
-    ) -> str:
-        try:
-            client = Together(api_key=self.api_key)
-            logger.info(f"Sending prompt to Together API (length: {len(prompt)})")
-            
-            # Build request parameters
-            params = {
-                "model": self.model,
-                "temperature": self.temperature,
-                "max_tokens": self.max_tokens,
-                **kwargs
-            }
-            
-            # Add stop sequences if provided
-            if stop:
-                params["stop"] = stop
-            
-            if self.streaming and run_manager:
-                text = ""
-                # For LLM, we need to use chat format with a single user message
-                stream = client.chat.completions.create(
-                    messages=[{"role": "user", "content": prompt}],
-                    stream=True,
-                    **params
-                )
-                
-                for chunk in stream:
-                    if hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content is not None:
-                        content = chunk.choices[0].delta.content
-                        text += content
-                        # Important: This is where we send tokens to the callback manager
-                        run_manager.on_llm_new_token(content)
-                
-                logger.info(f"Streaming response completed, total length: {len(text)}")
-                return text
-            else:
-                # For LLM, we need to use chat format with a single user message
-                response = client.chat.completions.create(
-                    messages=[{"role": "user", "content": prompt}],
-                    stream=False,
-                    **params
-                )
-                
-                text = response.choices[0].message.content
-                logger.info(f"Non-streaming response received, length: {len(text)}")
-                return text
-        
-        except Exception as e:
-            logger.error(f"Error in Together API call: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return "I encountered an error while processing your request."
-
-    @property
-    def _identifying_params(self) -> Dict[str, Any]:
-        """Get the identifying parameters."""
-        return {
-            "model": self.model,
-            "temperature": self.temperature,
-            "max_tokens": self.max_tokens
-        }
-
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup: Initialize connections and models
-    global supabase, llm, embeddings,vector_store,elastic_search
-    logger.info("Starting application: Initializing connections and models")
-    
-    try:
-        # Initialize Supabase
-        supabase = create_client(supabase_url, supabase_key)
-        logger.info("Supabase connection established")
-        
-        # Initialize embedding model - HuggingFace for embeddings
-        logger.info("Loading embedding model")
-        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/multi-qa-mpnet-base-dot-v1")
-        vector_store = InMemoryVectorStore(embeddings)
-
-        # FIX: Initialize Elasticsearch with proper configuration
-        elastic_search = ElasticsearchStore(
-            es_cloud_id="My_Elasticsearch_project:dXMtZWFzdC0xLmF3cy5lbGFzdGljLmNsb3VkJGUwZGVmMDhkN2YxMzRhZDJiMzgyYmNlMTBmOGZkZGQ4LmVzJGUwZGVmMDhkN2YxMzRhZDJiMzgyYmNlMTBmOGZkZGQ4Lmti",
-            es_api_key="ZXBJckY1Y0JrRFlSNHR5WlcxWEI6X1ZvUHhGWEdrSXhKRHMtRkltbWhzUQ==",
-            index_name="search-vivum-rag",
-            embedding=embeddings,
-            strategy=DenseVectorStrategy(
-                # Remove or set to False to avoid RRF issues initially
-                hybrid=False  # Changed from "true" to False
-            )
-        )
-        
-        # Initialize LLM - Using Llama hosted model
-        logger.info("Loading Llama model")
-        try:
-           
-            llm = TogetherChatModel(
-            api_key="7d8e09c3ede29df9e06c6858304734f62ad95b458eb219fa3abf53ecef490e09",
-            model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-            temperature=0.5,
-            max_tokens=4096,
-            streaming=True
-        )
-            logger.info("LLM loaded successfully")
-        except Exception as e:
-            logger.error(f"Failed to load LLM: {str(e)}")
-            # You might want to implement a fallback model here
-            
-            
-    except Exception as e:
-        logger.error(f"Startup error: {str(e)}")
-    
-    yield
-    
-    # Shutdown: Clean up resources
-    logger.info("Application shutdown: Cleaning up resources")
-
-app = FastAPI(lifespan=lifespan)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://www.vivum.app", "http://localhost:8081","http://localhost:3000",'https://frontend-vivum.vercel.app'],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-@app.get("/")
-def root():
-    return {"message": "API is running!"}
-
-@app.get("/supabase-status")
-async def check_supabase_status():
-    if supabase:
-        try:
-            # Try a simple query to confirm connection works
-            result = supabase.table("topics").select("count").execute()
-            return {"status": "connected", "message": "Supabase connection working"}
-        except Exception as e:
-            return {"status": "error", "message": f"Connection error: {str(e)}"}
-    else:
-        return {"status": "disconnected", "message": "Supabase client not initialized"}
-
-@app.get("/model-status")
-async def check_model_status():
-    status = {
-        "embedding_model": "loaded" if embeddings is not None else "not loaded",
-        "llm": "loaded" if llm is not None else "not loaded"
-    }
-    return status
-
-@app.get("/ping")
-def ping():
-    return {"status": "alive", "active_tasks": len(background_tasks_status)}
-
+# ============================================================================
+# ENHANCED PUBMED FILTERS CLASS
+# ============================================================================
 
 class PubMedFilters:
-    """Class to handle PubMed search filters and query construction matching PubMed's exact interface"""
+    """Enhanced PubMed search filters with multi-topic boolean operator support"""
     
     def __init__(self):
+        # Boolean operators supported by PubMed
+        self.boolean_operators = {
+            'AND': 'AND',
+            'OR': 'OR', 
+            'NOT': 'NOT'
+        }
+        
         # Publication date filters (PubMed standard)
         self.date_filters = {
             '1_year': '1 year',
@@ -908,16 +446,66 @@ class PubMedFilters:
             'nihms': 'nihms[sb]'
         }
 
+    def sanitize_topic(self, topic: str) -> str:
+        """Sanitize and validate individual topic for PubMed search"""
+        if not topic or not topic.strip():
+            return ""
+        
+        topic = topic.strip()
+        
+        # Handle quotes properly - if user wants phrase search, keep quotes
+        if topic.startswith('"') and topic.endswith('"'):
+            return topic  # Keep phrase search as is
+        else:
+            topic = topic.replace('"', '')
+        
+        # Clean up multiple spaces
+        topic = re.sub(r'\s+', ' ', topic)
+        return topic
+
+    def build_multi_topic_query(self, topics: List[str], operator: str = 'AND', 
+                               advanced_query: Optional[str] = None) -> str:
+        """Build query from multiple topics with user-selected boolean operator"""
+        if not topics and not advanced_query:
+            raise ValueError("At least one topic or advanced query must be provided")
+        
+        # If advanced query is provided, use it (for power users)
+        if advanced_query:
+            return self.parse_boolean_query(advanced_query.strip())
+        
+        # Sanitize and filter out empty topics
+        clean_topics = [self.sanitize_topic(topic) for topic in topics if topic and topic.strip()]
+        
+        if not clean_topics:
+            raise ValueError("No valid topics provided")
+        
+        # Validate operator
+        if operator not in self.boolean_operators:
+            raise ValueError(f"Invalid operator '{operator}'. Must be one of: {list(self.boolean_operators.keys())}")
+        
+        # Handle special case for NOT operator
+        if operator == 'NOT':
+            if len(clean_topics) < 2:
+                raise ValueError("NOT operator requires at least 2 topics")
+            # For NOT, the first topic is included, rest are excluded
+            base_topic = clean_topics[0]
+            excluded_topics = clean_topics[1:]
+            excluded_query = " AND ".join([f"NOT ({topic})" for topic in excluded_topics])
+            return f"({base_topic}) AND ({excluded_query})"
+        
+        # For single topic, no operator needed
+        if len(clean_topics) == 1:
+            return f"({clean_topics[0]})"
+        
+        # Join multiple topics with selected operator
+        boolean_op = self.boolean_operators[operator]
+        joined_query = f" {boolean_op} ".join([f"({topic})" for topic in clean_topics])
+        
+        return f"({joined_query})"
+
     def build_date_filter(self, date_option: str, start_date: Optional[str] = None, 
                          end_date: Optional[str] = None) -> str:
-        """
-        Build date filter based on PubMed's date options
-        
-        Args:
-            date_option: '1_year', '5_years', '10_years', or 'custom'
-            start_date: Start date in YYYY/MM/DD format (for custom)
-            end_date: End date in YYYY/MM/DD format (for custom)
-        """
+        """Build date filter based on PubMed's date options"""
         if date_option == 'custom':
             if start_date and end_date:
                 return f'("{start_date}"[Date - Publication] : "{end_date}"[Date - Publication])'
@@ -935,27 +523,33 @@ class PubMedFilters:
         return ""
 
     def parse_boolean_query(self, query: str) -> str:
-        """
-        Parse and validate boolean operators in the query
-        Supports AND, OR, NOT operators with proper PubMed syntax
-        """
+        """Parse and validate boolean operators in the query"""
         # Clean up the query - remove extra spaces
         query = re.sub(r'\s+', ' ', query.strip())
         
         # Validate boolean operators are properly formatted
-        # PubMed requires proper spacing around operators
         query = re.sub(r'\s*\bAND\b\s*', ' AND ', query, flags=re.IGNORECASE)
         query = re.sub(r'\s*\bOR\b\s*', ' OR ', query, flags=re.IGNORECASE)
         query = re.sub(r'\s*\bNOT\b\s*', ' NOT ', query, flags=re.IGNORECASE)
         
         return query
 
-    def build_complex_query(self, base_query: str, filters: Dict[str, Any]) -> str:
-        """
-        Build complex PubMed query with all filters and boolean operators
-        """
-        # Parse boolean operators in base query
-        processed_query = self.parse_boolean_query(base_query)
+    def build_complete_query(self, topics: Optional[List[str]] = None, operator: str = 'AND',
+                           base_query: Optional[str] = None, filters: Optional[Dict[str, Any]] = None,
+                           advanced_query: Optional[str] = None) -> str:
+        """Build complete PubMed query with multi-topic support and all filters"""
+        # Determine base query method
+        if advanced_query:
+            processed_query = self.parse_boolean_query(advanced_query)
+        elif topics:
+            processed_query = self.build_multi_topic_query(topics, operator)
+        elif base_query:
+            processed_query = self.parse_boolean_query(base_query)
+        else:
+            raise ValueError("Must provide either topics, base_query, or advanced_query")
+        
+        if not filters:
+            return processed_query
         
         filter_parts = []
         
@@ -1035,149 +629,20 @@ class PubMedFilters:
                 processed_custom = self.parse_boolean_query(custom_filter)
                 filter_parts.append(f'({processed_custom})')
         
-        # Combine all parts
+        # Combine base query with filters
         if filter_parts:
-            final_query = f'({processed_query}) AND ({" AND ".join(filter_parts)})'
+            final_query = f'{processed_query} AND ({" AND ".join(filter_parts)})'
         else:
             final_query = processed_query
         
         return final_query
 
-
-async def fetch_pubmed_data(topic: str, topic_id: str, max_results: int, 
-                           filters: Optional[Dict[str, Any]] = None):
-    """
-    Fetch PubMed articles with comprehensive filtering matching PubMed's interface
-    
-    Args:
-        topic: Search topic/query (supports AND, OR, NOT operators)
-        topic_id: Unique identifier for the topic
-        max_results: Maximum number of results to fetch
-        filters: Dictionary containing filter options
-    """
-    try:
-        logger.info(f"🔍 Fetching PubMed articles for topic '{topic}' (max {max_results})")
-        
-        # Initialize filter builder
-        filter_builder = PubMedFilters()
-        
-        # Build complete search query with filters
-        if filters:
-            search_query = filter_builder.build_complex_query(topic, filters)
-        else:
-            search_query = filter_builder.parse_boolean_query(topic)
-        
-        logger.info(f"🔍 Final search query: {search_query}")
-
-        # Step 1: Search PubMed for relevant article IDs
-        search_params = {
-            "db": "pubmed",
-            "term": search_query,
-            "retmode": "json",
-            "retmax": max_results,
-            "sort": filters.get('sort_by', 'relevance') if filters else 'relevance',
-            "field": filters.get('search_field', 'title/abstract') if filters else 'title/abstract'
-        }
-        
-        search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-        response = requests.get(search_url, params=search_params)
-        response.raise_for_status()
-
-        search_result = response.json().get("esearchresult", {})
-        article_ids = search_result.get("idlist", [])
-        total_count = search_result.get("count", "0")
-        
-        if not article_ids:
-            logger.warning(f"⚠️ No articles found for topic '{topic}' with applied filters")
-            logger.info(f"📊 Total available articles: {total_count}")
-            return False
-
-        logger.info(f"✅ Found {len(article_ids)} articles (total available: {total_count}). Fetching details...")
-
-        # Step 2: Fetch article details (batch fetch)
-        details_params = {
-            "db": "pubmed",
-            "id": ",".join(article_ids),
-            "retmode": "xml",
-        }
-        details_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
-        details_response = requests.get(details_url, params=details_params)
-        details_response.raise_for_status()
-
-        # Step 3: Parse XML with enhanced extraction
-        from xml.etree import ElementTree as ET
-        root = ET.fromstring(details_response.content)
-
-        docs = []
-        articles_data = []
-        
-        for idx, article in enumerate(root.findall(".//PubmedArticle"), start=1):
-            try:
-                # Extract comprehensive article data
-                article_data = extract_enhanced_article_data(article, idx)
-                
-                # Validate article quality
-                if not validate_article_data(article_data):
-                    logger.warning(f"⚠️ Skipping low-quality article: {article_data.get('pmid', 'unknown')}")
-                    continue
-
-                # Create content chunks for embedding
-                content_chunks = create_content_chunks(article_data)
-                
-                # Add chunks as documents
-                for chunk in content_chunks:
-                    docs.append(Document(
-                        page_content=chunk['content'],
-                        metadata=chunk['metadata']
-                    ))
-
-                articles_data.append({
-                    "topic_id": topic_id,
-                    "pubmed_id": article_data['pmid'],
-                    "title": article_data['title'],
-                    "abstract": article_data['abstract'],
-                    "authors": article_data['authors'],
-                    "url": f"https://pubmed.ncbi.nlm.nih.gov/{article_data['pmid']}/"
-                })
-
-            except Exception as parse_err:
-                logger.warning(f"⚠️ Skipping malformed article: {parse_err}")
-
-        logger.info(f"📄 Processed {len(docs)} content chunks from {len(articles_data)} articles.")
-
-        if not docs:
-            logger.warning(f"⚠️ No valid articles to process for topic '{topic}'")
-            return False
-
-        # Step 4: Create vector store
-        temp = FAISS.from_documents(docs, embeddings)
-        temp.save_local(f"vectorstores/{topic_id}")
-        ids = vector_store.add_documents(documents=docs)
-        _ = elastic_search.add_documents(documents=docs)
-
-        if supabase:
-            supabase.table("topics").update({
-                "status": "completed",
-                "total_articles_found": total_count,
-                "article_count": len(articles_data),
-                "filters": filters
-            }).eq("id", topic_id).execute()
-
-            supabase.table("articles").insert(articles_data).execute()
-            logger.info(f"✅ Stored {len(articles_data)} articles metadata to Supabase.")
-        
-        logger.info(f"✅ Vector store created with {len(docs)} chunks for topic_id '{topic_id}'")
-        return True
-
-    except Exception as e:
-        logger.error(f"❌ Error fetching PubMed data: {e}")
-        if supabase:
-            supabase.table("topics").update({"status": f"error: {str(e)}", "article_count": 0}).eq("id", topic_id).execute()
-        return False
+# ============================================================================
+# ARTICLE PROCESSING FUNCTIONS
+# ============================================================================
 
 def extract_enhanced_article_data(article, idx):
     """Extract comprehensive article data with proper error handling"""
-    
     # Basic identifiers
     pmid = article.findtext(".//PMID") or "unknown"
     
@@ -1222,7 +687,6 @@ def extract_enhanced_article_data(article, idx):
         'publication_types': pub_types
     }
 
-
 def extract_structured_abstract(article):
     """Extract abstract handling structured formats with labels"""
     abstract_texts = article.findall(".//AbstractText")
@@ -1240,7 +704,6 @@ def extract_structured_abstract(article):
                 abstract_parts.append(text)
     
     return " ".join(abstract_parts).strip() or "No Abstract"
-
 
 def extract_authors_with_affiliations(article):
     """Extract authors with proper name formatting"""
@@ -1265,7 +728,6 @@ def extract_authors_with_affiliations(article):
                 authors.append(full_name)
     
     return "; ".join(authors) or "Unknown Authors"
-
 
 def extract_publication_date(article):
     """Extract publication date from various date fields"""
@@ -1300,14 +762,12 @@ def extract_publication_date(article):
     
     return "Unknown Date"
 
-
 def extract_doi(article):
     """Extract DOI from article identifiers"""
     for article_id in article.findall(".//ArticleId"):
         if article_id.get("IdType") == "doi":
             return article_id.text
     return None
-
 
 def extract_mesh_terms(article):
     """Extract MeSH terms for topic classification"""
@@ -1317,7 +777,6 @@ def extract_mesh_terms(article):
             mesh_terms.append(mesh.text)
     return mesh_terms
 
-
 def extract_keywords(article):
     """Extract author keywords"""
     keywords = []
@@ -1325,7 +784,6 @@ def extract_keywords(article):
         if keyword.text:
             keywords.append(keyword.text)
     return keywords
-
 
 def validate_article_data(article_data):
     """Validate article quality before processing"""
@@ -1345,23 +803,15 @@ def validate_article_data(article_data):
     
     return True
 
-
 splitter = RecursiveCharacterTextSplitter(
     chunk_size=400,
     chunk_overlap=50,
     separators=["\n\n", "\n", ".", " "]
 )
 
-
 def create_content_chunks(article_data):
     """Create content chunks with proper content/metadata separation"""
     chunks = []
-    
-    # Chunk 1: Title + Abstract (main content for semantic search)
-    title_abstract_content = f"""[Article {article_data['article_index']}]
-    Title: {article_data['title']}
-
-Abstract: {article_data['abstract']}"""
     
     # Rich metadata for filtering and citations
     base_metadata = {
@@ -1378,7 +828,7 @@ Abstract: {article_data['abstract']}"""
         "chunk_type": "title_abstract"
     }
 
-      # Safe content creation
+    # Safe content creation
     title = base_metadata["title"]
     authors = base_metadata["authors"]
     abstract = article_data.get('abstract', 'No Abstract')
@@ -1395,8 +845,6 @@ Abstract: {abstract}"""
         'metadata': base_metadata
     })
     
-    
-  
     # If abstract is very long, create additional chunk for just abstract
     if len(abstract) > 800:
         abstract_chunks = splitter.split_text(abstract)
@@ -1413,17 +861,380 @@ Abstract: {abstract}"""
     
     return chunks
 
-async def fetch_data_background(topic: str, topic_id: str, max_results: int, filters: Optional[Dict[str, Any]] = None):
-    """Background task to fetch data from PubMed with filters"""
+# ============================================================================
+# FETCH PUBMED DATA FUNCTION (UPDATED)
+# ============================================================================
+
+async def fetch_pubmed_data(topics: Optional[List[str]] = None, operator: str = 'AND',
+                           topic: Optional[str] = None, topic_id: str = "", max_results: int = 100,
+                           filters: Optional[Dict[str, Any]] = None, 
+                           advanced_query: Optional[str] = None):
+    """Enhanced PubMed data fetcher with multi-topic boolean search support"""
+    try:
+        # Initialize filter builder
+        filter_builder = PubMedFilters()
+        
+        # Build complete search query with multi-topic support
+        search_query = filter_builder.build_complete_query(
+            topics=topics,
+            operator=operator,
+            base_query=topic,  # For backward compatibility
+            filters=filters,
+            advanced_query=advanced_query
+        )
+        
+        # Log search details
+        if topics:
+            logger.info(f"🔍 Multi-topic search for: {topics}")
+            logger.info(f"🔗 Boolean operator: {operator}")
+        elif topic:
+            logger.info(f"🔍 Single topic search for: '{topic}'")
+        elif advanced_query:
+            logger.info(f"🔍 Advanced query search")
+        
+        logger.info(f"🔍 Final search query: {search_query}")
+        logger.info(f"📊 Max results: {max_results}")
+
+        # Step 1: Search PubMed for relevant article IDs
+        search_params = {
+            "db": "pubmed",
+            "term": search_query,
+            "retmode": "json",
+            "retmax": max_results,
+            "sort": filters.get('sort_by', 'relevance') if filters else 'relevance',
+            "field": filters.get('search_field', 'title/abstract') if filters else 'title/abstract'
+        }
+        
+        search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+        response = requests.get(search_url, params=search_params)
+        response.raise_for_status()
+
+        search_result = response.json().get("esearchresult", {})
+        article_ids = search_result.get("idlist", [])
+        total_count = search_result.get("count", "0")
+        
+        if not article_ids:
+            search_description = f"topics {topics} with operator '{operator}'" if topics else f"topic '{topic}'"
+            logger.warning(f"⚠️ No articles found for {search_description} with applied filters")
+            logger.info(f"📊 Total available articles: {total_count}")
+            return False
+
+        logger.info(f"✅ Found {len(article_ids)} articles (total available: {total_count}). Fetching details...")
+
+        # Step 2: Fetch article details (batch fetch)
+        details_params = {
+            "db": "pubmed",
+            "id": ",".join(article_ids),
+            "retmode": "xml",
+        }
+        details_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+        details_response = requests.get(details_url, params=details_params)
+        details_response.raise_for_status()
+
+        # Step 3: Parse XML with enhanced extraction
+        root = ET.fromstring(details_response.content)
+
+        docs = []
+        articles_data = []
+        
+        for idx, article in enumerate(root.findall(".//PubmedArticle"), start=1):
+            try:
+                # Extract comprehensive article data
+                article_data = extract_enhanced_article_data(article, idx)
+                
+                # Validate article quality
+                if not validate_article_data(article_data):
+                    logger.warning(f"⚠️ Skipping low-quality article: {article_data.get('pmid', 'unknown')}")
+                    continue
+
+                # Create content chunks for embedding
+                content_chunks = create_content_chunks(article_data)
+                
+                # Add chunks as documents
+                for chunk in content_chunks:
+                    docs.append(Document(
+                        page_content=chunk['content'],
+                        metadata=chunk['metadata']
+                    ))
+
+                articles_data.append({
+                    "topic_id": topic_id,
+                    "pubmed_id": article_data['pmid'],
+                    "title": article_data['title'],
+                    "abstract": article_data['abstract'],
+                    "authors": article_data['authors'],
+                    "url": f"https://pubmed.ncbi.nlm.nih.gov/{article_data['pmid']}/"
+                })
+
+            except Exception as parse_err:
+                logger.warning(f"⚠️ Skipping malformed article: {parse_err}")
+
+        logger.info(f"📄 Processed {len(docs)} content chunks from {len(articles_data)} articles.")
+
+        if not docs:
+            search_description = f"topics {topics}" if topics else f"topic '{topic}'"
+            logger.warning(f"⚠️ No valid articles to process for {search_description}")
+            return False
+
+        # Step 4: Create vector store
+        try:
+            temp = FAISS.from_documents(docs, embeddings)
+            temp.save_local(f"vectorstores/{topic_id}")
+            ids = vector_store.add_documents(documents=docs)
+            _ = elastic_search.add_documents(documents=docs)
+        except Exception as e:
+            logger.warning(f"⚠️ Vector store error: {e}")
+
+        # Step 5: Store metadata to Supabase
+        try:
+            if supabase:
+                supabase.table("topics").update({
+                    "status": "completed",
+                    "total_articles_found": total_count,
+                    "article_count": len(articles_data),
+                    "search_topics": topics,
+                    "boolean_operator": operator,
+                    "filters": filters
+                }).eq("id", topic_id).execute()
+
+                supabase.table("articles").insert(articles_data).execute()
+                logger.info(f"✅ Stored {len(articles_data)} articles metadata to Supabase.")
+        except Exception as e:
+            logger.warning(f"⚠️ Supabase error: {e}")
+        
+        logger.info(f"✅ Processing completed with {len(docs)} chunks for topic_id '{topic_id}'")
+        return True
+
+    except Exception as e:
+        logger.error(f"❌ Error fetching PubMed data: {e}")
+        try:
+            if supabase:
+                supabase.table("topics").update({
+                    "status": f"error: {str(e)}", 
+                    "article_count": 0
+                }).eq("id", topic_id).execute()
+        except:
+            pass
+        return False
+
+# ============================================================================
+# LLM CLASSES
+# ============================================================================
+
+class TogetherChatModel(BaseChatModel):
+    api_key: str
+    model: str = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
+    temperature: float = 0.7
+    max_tokens: int = 1024
+    streaming: bool = True
+    
+    @property
+    def _llm_type(self) -> str:
+        return "together_chat"
+    
+    def _generate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        try:
+            client = Together(api_key=self.api_key)
+            together_messages = []
+            
+            # Convert LangChain messages to Together format
+            for message in messages:
+                if isinstance(message, HumanMessage):
+                    together_messages.append({"role": "user", "content": message.content})
+                elif isinstance(message, AIMessage):
+                    together_messages.append({"role": "assistant", "content": message.content})
+                else:
+                    together_messages.append({"role": "system", "content": message.content})
+            
+            logger.info(f"Sending {len(together_messages)} messages to Together API")
+            
+            # Build request parameters
+            params = {
+                "model": self.model,
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+                **kwargs
+            }
+            
+            # Add stop sequences if provided
+            if stop:
+                params["stop"] = stop
+            
+            if self.streaming and run_manager:
+                text = ""
+                stream = client.chat.completions.create(
+                    messages=together_messages,
+                    stream=True,
+                    **params
+                )
+                
+                for chunk in stream:
+                    if chunk.choices and hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content:
+                        content = chunk.choices[0].delta.content
+                        text += content
+                        run_manager.on_llm_new_token(content)
+                
+                logger.info(f"Streaming response completed, total length: {len(text)}")
+                message = AIMessage(content=text)
+            else:
+                response = client.chat.completions.create(
+                    messages=together_messages,
+                    stream=False,
+                    **params
+                )
+                
+                text = response.choices[0].message.content
+                logger.info(f"Non-streaming response received, length: {len(text)}")
+                message = AIMessage(content=text)
+            
+            return ChatResult(generations=[ChatGeneration(message=message)])
+        
+        except Exception as e:
+            logger.error(f"Error in Together API call: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            message = AIMessage(content="I encountered an error while processing your request.")
+            return ChatResult(generations=[ChatGeneration(message=message)])
+    
+    def _agenerate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        """Async version not implemented, falls back to sync version."""
+        return self._generate(messages, stop, run_manager, **kwargs)
+
+    @property
+    def _identifying_params(self) -> Dict[str, Any]:
+        """Get the identifying parameters."""
+        return {
+            "model": self.model,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens
+        }
+
+# ============================================================================
+# FASTAPI APPLICATION SETUP
+# ============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Initialize connections and models
+    global supabase, llm, embeddings, vector_store, elastic_search
+    logger.info("Starting application: Initializing connections and models")
+    
+    try:
+        # Initialize Supabase
+        supabase = create_client(supabase_url, supabase_key)
+        logger.info("Supabase connection established")
+        
+        # Initialize embedding model - HuggingFace for embeddings
+        logger.info("Loading embedding model")
+        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/multi-qa-mpnet-base-dot-v1")
+        vector_store = InMemoryVectorStore(embeddings)
+
+        elastic_search = ElasticsearchStore(
+            es_cloud_id="My_Elasticsearch_project:dXMtZWFzdC0xLmF3cy5lbGFzdGljLmNsb3VkJGUwZGVmMDhkN2YxMzRhZDJiMzgyYmNlMTBmOGZkZGQ4LmVzJGUwZGVmMDhkN2YxMzRhZDJiMzgyYmNlMTBmOGZkZGQ4Lmti",
+            es_api_key="ZXBJckY1Y0JrRFlSNHR5WlcxWEI6X1ZvUHhGWEdrSXhKRHMtRkltbWhzUQ==",
+            index_name="search-vivum-rag",
+            embedding=embeddings,
+            strategy=DenseVectorStrategy(hybrid="true")
+        )
+        
+        # Initialize LLM - Using Llama hosted model
+        logger.info("Loading Llama model")
+        try:
+            llm = TogetherChatModel(
+                api_key="7d8e09c3ede29df9e06c6858304734f62ad95b458eb219fa3abf53ecef490e09",
+                model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+                temperature=0.5,
+                max_tokens=4096,
+                streaming=True
+            )
+            logger.info("LLM loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load LLM: {str(e)}")
+            
+    except Exception as e:
+        logger.error(f"Startup error: {str(e)}")
+    
+    yield
+    
+    # Shutdown: Clean up resources
+    logger.info("Application shutdown: Cleaning up resources")
+
+app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://www.vivum.app", "http://localhost:8081", "http://localhost:3000", 'https://frontend-vivum.vercel.app'],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
+
+def get_vectorstore_retriever(topic_id, query):
+    # Define the index path
+    index_path = f"vectorstores/{topic_id}/index.faiss"
+
+    vectorstore_path = Path("vectorstores") / str(topic_id)
+    db = FAISS.load_local(str(vectorstore_path), embeddings, allow_dangerous_deserialization=True)
+    
+    # Check if the FAISS index file exists
+    if not os.path.exists(index_path):
+        logger.error(f"FAISS index file not found at: {index_path}")
+        raise HTTPException(
+            status_code=404, 
+            detail=f"FAISS index file not found for topic {topic_id}. Please check the vectorstore creation process."
+        )
+    
+    # Load the FAISS index with proper error handling
+    try:
+        logger.info(f"Loading FAISS index file at: {index_path}")
+    except Exception as e:
+        logger.error(f"Error loading FAISS index: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to load FAISS index: {str(e)}")
+    
+    retriever = elastic_search.as_retriever(search_kwargs={"k": 40})
+    logger.info(query)
+    return retriever
+
+async def fetch_data_background(request: TopicRequest, topic_id: str):
+    """Background task to fetch data from PubMed with enhanced multi-topic support"""
     try:
         background_tasks_status[topic_id] = "processing"
+        
+        # Convert Pydantic model to function parameters
+        filters_dict = None
+        if request.filters:
+            filters_dict = request.filters.dict(exclude_none=True)
         
         # Set timeout for the fetch operation
         fetch_timeout = 120  # seconds
         try:
-            # Run with timeout
+            # Run with timeout using the enhanced fetch function
             success = await asyncio.wait_for(
-                fetch_pubmed_data(topic, topic_id, max_results, filters),
+                fetch_pubmed_data(
+                    topics=request.topics,
+                    operator=request.operator.value if request.operator else "AND",
+                    topic=request.topic,  # Backward compatibility
+                    topic_id=topic_id,
+                    max_results=request.max_results,
+                    filters=filters_dict,
+                    advanced_query=request.advanced_query
+                ),
                 timeout=fetch_timeout
             )
             
@@ -1472,60 +1283,13 @@ def check_topic_fetch_status(topic_id: str):
         logger.error("Supabase client not initialized")
         return "database_error"
 
-@app.post("/fetch-topic-data", response_model=TopicResponse)
-async def fetch_topic_data(request: TopicRequest, background_tasks: BackgroundTasks):
-    """
-    Endpoint to fetch data from PubMed for a topic and store in Supabase
-    Returns a topic_id that can be used for querying later
-    """
-    try:
-        # Check if Supabase is connected
-        if not supabase:
-            raise HTTPException(
-                status_code=503,
-                detail="Database connection not available"
-            )
-        
-        # Generate a unique topic ID
-        topic_id = str(uuid.uuid4())
-        
-        # Create initial record in Supabase with filters
-        supabase.table("topics").insert({
-            "id": topic_id,
-            "topic": request.topic,
-            "filters": request.filters,  # Store filters for reference
-            "created_at": datetime.utcnow().isoformat() + "Z",
-            "status": "processing"
-        }).execute()
-        
-        # Start background task to fetch and store data with filters
-        background_tasks.add_task(
-            fetch_data_background, 
-            request.topic, 
-            topic_id, 
-            request.max_results,
-            request.filters  # Pass filters to background task
-        )
-        
-        return {
-            "topic_id": topic_id,
-            "message": f"Started fetching data for topic: {request.topic} (limited to {request.max_results} results)",
-            "status": "processing"
-        }
-    except HTTPException:
-        raise  # Re-raise HTTP exceptions
-    except Exception as e:
-        logger.error(f"Error initiating fetch: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-def get_or_create_chain(topic_id: str, conversation_id: str , query:str):
+def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
     """Get or create a conversation chain for this topic and conversation"""
     chain_key = f"{topic_id}:{conversation_id}"
    
     if chain_key in conversation_chains:
         return conversation_chains[chain_key]
 
-    
     # Create memory
     memory = ConversationBufferMemory(
         memory_key="chat_history",
@@ -1534,8 +1298,7 @@ def get_or_create_chain(topic_id: str, conversation_id: str , query:str):
     )
     
     # Create a retriever with compression to get more relevant context
-    # retriever = vector_store.as_retriever(search_kwargs={"k": 3})
-    retriever = get_vectorstore_retriever(topic_id,query)
+    retriever = get_vectorstore_retriever(topic_id, query)
 
     # ADD THESE LINES TO VERIFY RETRIEVAL
     try:
@@ -1551,27 +1314,24 @@ def get_or_create_chain(topic_id: str, conversation_id: str , query:str):
                    f"Retriever type: {type(retriever).__name__}")
    
     qa_chain = ConversationalRetrievalChain.from_llm(
-            llm=llm,
-            retriever=retriever,
-            memory = memory,
-            return_source_documents=True,
-            verbose=True,
-            output_key="answer",
-            combine_docs_chain_kwargs={"prompt": prompt_rag}
-        )
+        llm=llm,
+        retriever=retriever,
+        memory=memory,
+        return_source_documents=True,
+        verbose=True,
+        output_key="answer",
+        combine_docs_chain_kwargs={"prompt": prompt_rag}
+    )
         
-        
-        # Verification steps
+    # Verification steps
     logger.info(f"Chain created successfully for {chain_key}")
     logger.info(f"Chain components: LLM type: {type(llm).__name__}, " 
                    f"Retriever type: {type(retriever).__name__}")
         
-        # Test if the chain has the expected methods
+    # Test if the chain has the expected methods
     if not hasattr(qa_chain, 'invoke') and not hasattr(qa_chain, '__call__'):
-            logger.error("Chain missing expected methods")
-            return None
-            
-       
+        logger.error("Chain missing expected methods")
+        return None
     
     # Store and return the chain
     conversation_chains[chain_key] = qa_chain
@@ -1582,20 +1342,100 @@ def get_or_create_chain(topic_id: str, conversation_id: str , query:str):
         chains_to_remove = list(conversation_chains.keys())[:-MAX_CONVERSATIONS]
         for key in chains_to_remove:
             del conversation_chains[key]
-    
 
     return qa_chain
+
+# ============================================================================
+# FASTAPI ENDPOINTS
+# ============================================================================
+
+@app.get("/")
+def root():
+    return {"message": "API is running with multi-topic boolean search support!"}
+
+@app.get("/supabase-status")
+async def check_supabase_status():
+    if supabase:
+        try:
+            # Try a simple query to confirm connection works
+            result = supabase.table("topics").select("count").execute()
+            return {"status": "connected", "message": "Supabase connection working"}
+        except Exception as e:
+            return {"status": "error", "message": f"Connection error: {str(e)}"}
+    else:
+        return {"status": "disconnected", "message": "Supabase client not initialized"}
+
+@app.get("/model-status")
+async def check_model_status():
+    status = {
+        "embedding_model": "loaded" if embeddings is not None else "not loaded",
+        "llm": "loaded" if llm is not None else "not loaded"
+    }
+    return status
+
+@app.get("/ping")
+def ping():
+    return {"status": "alive", "active_tasks": len(background_tasks_status)}
+
+@app.post("/fetch-topic-data", response_model=TopicResponse)
+async def fetch_topic_data(request: TopicRequest, background_tasks: BackgroundTasks):
+    """Enhanced endpoint to fetch data from PubMed with multi-topic boolean search support"""
+    try:
+        # Check if Supabase is connected
+        if not supabase:
+            raise HTTPException(
+                status_code=503,
+                detail="Database connection not available"
+            )
         
-
- 
-
-
+        # Generate a unique topic ID
+        topic_id = str(uuid.uuid4())
+        
+        # Prepare search description for logging
+        if request.topics:
+            search_description = f"Multi-topic search: {request.topics} with {request.operator}"
+        elif request.topic:
+            search_description = f"Single topic: {request.topic}"
+        elif request.advanced_query:
+            search_description = f"Advanced query: {request.advanced_query[:100]}..."
+        else:
+            search_description = "Unknown search type"
+        
+        # Create initial record in Supabase with enhanced metadata
+        topic_data = {
+            "id": topic_id,
+            "topic": request.topic,  # Keep for backward compatibility
+            "search_topics": request.topics,  # New field for multi-topic
+            "boolean_operator": request.operator.value if request.operator else None,
+            "advanced_query": request.advanced_query,
+            "filters": request.filters.dict(exclude_none=True) if request.filters else None,
+            "created_at": datetime.utcnow().isoformat() + "Z",
+            "status": "processing"
+        }
+        
+        supabase.table("topics").insert(topic_data).execute()
+        
+        # Start background task to fetch and store data
+        background_tasks.add_task(
+            fetch_data_background, 
+            request,  # Pass the entire request object
+            topic_id
+        )
+        
+        return {
+            "topic_id": topic_id,
+            "message": f"Started fetching data for: {search_description} (limited to {request.max_results} results)",
+            "status": "processing"
+        }
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
+    except Exception as e:
+        logger.error(f"Error initiating fetch: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/query", response_model=ChatResponse)
 async def answer_query(request: QueryRequest):
-    """
-    Answer questions using RAG over stored topic articles
-    """
+    """Answer questions using RAG over stored topic articles"""
     try:
         if not supabase:
             raise HTTPException(status_code=503, detail="Database connection not available")
@@ -1614,11 +1454,9 @@ async def answer_query(request: QueryRequest):
 
         conversation_id = request.conversation_id or str(uuid.uuid4())
 
-  
-       
-        # --- Try to set up the LangChain ConversationalRetrievalChain ---
+        # Try to set up the LangChain ConversationalRetrievalChain
         try:
-            chain = get_or_create_chain(request.topic_id ,conversation_id, request.query)
+            chain = get_or_create_chain(request.topic_id, conversation_id, request.query)
         except Exception as e:
             logger.error(f"Error setting up LangChain ConversationalRetrievalChain: {str(e)}")
             raise HTTPException(status_code=500, detail="Error setting up conversational chain")
@@ -1628,10 +1466,9 @@ async def answer_query(request: QueryRequest):
         result = chain.invoke({"question": request.query})
         answer = result.get("answer", "Sorry, No Answer")
 
-# Add logging to verify the answer is being extracted correctly
+        # Add logging to verify the answer is being extracted correctly
         logger.info(f"Question: {request.query}")
         logger.info(f"Raw result keys: {result.keys()}")
-
 
         return {"response": answer, "conversation_id": conversation_id}
     
@@ -1641,94 +1478,15 @@ async def answer_query(request: QueryRequest):
         logger.error(f"Error in query processing: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error in query processing: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-    
-
-    
-   
-
-async def get_topic_articles(topic_id: str, limit: int = 100, offset: int = 0):
-    """
-    Fetch all articles for a specific topic
-    """
-    try:
-        # Check if Supabase is connected
-        if not supabase:
-            raise HTTPException(
-                status_code=503,
-                detail="Database connection not available"
-            )
-            
-        # First verify the topic exists
-        topic_result = supabase.table("topics").select("*").eq("id", topic_id).execute()
-        
-        if not topic_result.data:
-            raise HTTPException(
-                status_code=404,
-                detail="Topic not found"
-            )
-            
-        # Check if data fetching is complete
-        status = check_topic_fetch_status(topic_id)
-        if status != "completed":
-            return {
-                "topic_id": topic_id,
-                "status": status,
-                "articles": [],
-                "message": "Data is still being processed or had an error"
-            }
-        
-        # Fetch articles with pagination
-        articles_result = supabase.table("articles") \
-            .select("*") \
-            .eq("topic_id", topic_id) \
-            .range(offset, offset + limit - 1) \
-            .execute()
-            
-        # Get the total count (for pagination info)
-        count_result = supabase.table("articles") \
-            .select("id", count="exact") \
-            .eq("topic_id", topic_id) \
-            .execute()
-        
-        total_count = count_result.count if hasattr(count_result, "count") else len(articles_result.data)
-        
-        return {
-            "topic_id": topic_id,
-            "status": "completed",
-            "articles": articles_result.data,
-            "pagination": {
-                "total": total_count,
-                "limit": limit,
-                "offset": offset,
-                "has_more": (offset + limit) < total_count
-            }
-        }
-        
-    except HTTPException:
-        raise  # Re-raise HTTP exceptions
-    except Exception as e:
-        logger.error(f"Error fetching articles for topic {topic_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.get("/topic/{topic_id}/status")
 async def check_topic_status(topic_id: str):
-    """
-    Check the status of data fetching for a topic
-    """
+    """Check the status of data fetching for a topic"""
     status = check_topic_fetch_status(topic_id)
     return {"topic_id": topic_id, "status": status}
 
 @app.get("/topic/{topic_id}/articles")
 async def get_topic_articles(topic_id: str, limit: int = 100, offset: int = 0):
-    """
-    Fetch all articles for a specific topic
-    """
+    """Fetch all articles for a specific topic"""
     try:
         # Check if Supabase is connected
         if not supabase:
@@ -1791,43 +1549,33 @@ async def get_topic_articles(topic_id: str, limit: int = 100, offset: int = 0):
 
 @app.post("/test-filters")
 async def test_filters(request: TopicRequest):
-    """Test endpoint to validate filter query construction"""
+    """Test endpoint to validate filter query construction with multi-topic support"""
     try:
         filter_builder = PubMedFilters()
         
+        filters_dict = None
         if request.filters:
-            final_query = filter_builder.build_complex_query(request.topic, request.filters)
-        else:
-            final_query = filter_builder.parse_boolean_query(request.topic)
+            filters_dict = request.filters.dict(exclude_none=True)
+        
+        final_query = filter_builder.build_complete_query(
+            topics=request.topics,
+            operator=request.operator.value if request.operator else "AND",
+            base_query=request.topic,
+            filters=filters_dict,
+            advanced_query=request.advanced_query
+        )
         
         return {
-            "original_query": request.topic,
-            "filters": request.filters,
+            "search_method": "multi-topic" if request.topics else "single-topic" if request.topic else "advanced",
+            "topics": request.topics,
+            "operator": request.operator,
+            "original_topic": request.topic,
+            "advanced_query": request.advanced_query,
+            "filters": filters_dict,
             "final_pubmed_query": final_query
         }
     except Exception as e:
         return {"error": str(e)}
-
-@app.get("/debug/check-articles/{topic_id}")
-async def check_article_retrieval(topic_id: str):
-    """Debug endpoint to verify article retrieval"""
-    try:
-        # Test with a generic query
-        retriever = get_vectorstore_retriever(topic_id, "test query")
-        docs = retriever.get_relevant_documents("research")
-        
-        # Count unique articles
-        pmids = [doc.metadata.get('pubmed_id') for doc in docs if doc.metadata.get('pubmed_id')]
-        unique_pmids = set(pmids)
-        
-        return {
-            "status": "success",
-            "total_chunks": len(docs),
-            "unique_articles": len(unique_pmids),
-            "articles_found": list(unique_pmids)[:10]  # First 10 for preview
-        }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
 
 @app.get("/health")
 def health_check():

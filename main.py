@@ -220,14 +220,39 @@ class PubMedFiltersModel(BaseModel):
     sort_by: Optional[SortBy] = SortBy.RELEVANCE
     search_field: Optional[SearchField] = SearchField.TITLE_ABSTRACT
     
-    @field_validator('custom_start_date', 'custom_end_date')
+    # FIXED: Handle empty strings properly
+    @field_validator('publication_date', mode='before')
     @classmethod
-    def validate_date_format(cls, v):
+    def validate_publication_date(cls, v):
+        if v == "" or v is None:
+            return None
+        return v
+    
+    @field_validator('custom_start_date', 'custom_end_date', mode='before')
+    @classmethod
+    def validate_date_strings(cls, v):
+        if v == "" or v is None:
+            return None
+        # Validate date format if not empty
         if v is not None:
             try:
                 datetime.strptime(v, '%Y/%m/%d')
             except ValueError:
                 raise ValueError('Date must be in YYYY/MM/DD format')
+        return v
+    
+    @field_validator('text_availability', 'article_types', 'languages', 'species', 'sex', 'age_groups', 'other_filters', 'custom_filters', mode='before')
+    @classmethod
+    def validate_list_fields(cls, v):
+        if v == "" or v == [] or v is None:
+            return None
+        return v
+    
+    @field_validator('sort_by', 'search_field', mode='before')
+    @classmethod
+    def validate_enum_fields(cls, v):
+        if v == "" or v is None:
+            return None
         return v
 
 class TopicRequest(BaseModel):
@@ -242,6 +267,7 @@ class TopicRequest(BaseModel):
     advanced_query: Optional[str] = Field(None, description="Advanced PubMed query string")
     
     # Other fields
+    source: Optional[str] = Field("pubmed", description="Data source (pubmed/scopus)")
     max_results: Optional[int] = Field(20, ge=1, le=10000, description="Maximum number of results")
     filters: Optional[PubMedFiltersModel] = None
 
@@ -260,7 +286,7 @@ class TopicRequest(BaseModel):
         
         # Count non-empty search inputs
         search_inputs = [
-            bool(topics and any(t.strip() for t in topics)),
+            bool(topics and any(t.strip() for t in topics if t)),
             bool(topic and topic.strip()),
             bool(advanced_query and advanced_query.strip())
         ]
@@ -277,7 +303,7 @@ class TopicRequest(BaseModel):
         
         # Validate topics are not empty
         if topics:
-            clean_topics = [t.strip() for t in topics if t.strip()]
+            clean_topics = [t.strip() for t in topics if t and t.strip()]
             if not clean_topics:
                 raise ValueError('Topics cannot be empty')
             values['topics'] = clean_topics
@@ -1141,13 +1167,15 @@ async def lifespan(app: FastAPI):
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/multi-qa-mpnet-base-dot-v1")
         vector_store = InMemoryVectorStore(embeddings)
 
+        # FIXED: Configure Elasticsearch without hybrid search to avoid RRF issues
         elastic_search = ElasticsearchStore(
             es_cloud_id="My_Elasticsearch_project:dXMtZWFzdC0xLmF3cy5lbGFzdGljLmNsb3VkJGUwZGVmMDhkN2YxMzRhZDJiMzgyYmNlMTBmOGZkZGQ4LmVzJGUwZGVmMDhkN2YxMzRhZDJiMzgyYmNlMTBmOGZkZGQ4Lmti",
             es_api_key="ZXBJckY1Y0JrRFlSNHR5WlcxWEI6X1ZvUHhGWEdrSXhKRHMtRkltbWhzUQ==",
             index_name="search-vivum-rag",
             embedding=embeddings,
-            strategy=DenseVectorStrategy(hybrid="true")
+            strategy=DenseVectorStrategy(hybrid=False)  # DISABLED HYBRID TO AVOID RRF ISSUE
         )
+        logger.info("Elasticsearch connection established (hybrid search disabled)")
         
         # Initialize LLM - Using Llama hosted model
         logger.info("Loading Llama model")
@@ -1190,7 +1218,6 @@ def get_vectorstore_retriever(topic_id, query):
     index_path = f"vectorstores/{topic_id}/index.faiss"
 
     vectorstore_path = Path("vectorstores") / str(topic_id)
-    db = FAISS.load_local(str(vectorstore_path), embeddings, allow_dangerous_deserialization=True)
     
     # Check if the FAISS index file exists
     if not os.path.exists(index_path):
@@ -1202,13 +1229,38 @@ def get_vectorstore_retriever(topic_id, query):
     
     # Load the FAISS index with proper error handling
     try:
-        logger.info(f"Loading FAISS index file at: {index_path}")
+        db = FAISS.load_local(str(vectorstore_path), embeddings, allow_dangerous_deserialization=True)
+        logger.info(f"Loaded FAISS index file at: {index_path}")
     except Exception as e:
         logger.error(f"Error loading FAISS index: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to load FAISS index: {str(e)}")
     
-    retriever = elastic_search.as_retriever(search_kwargs={"k": 40})
-    logger.info(query)
+    # FIXED: Use appropriate retriever with error handling and reduced k value
+    try:
+        # Use Elasticsearch with smaller k value (no more RRF issues since hybrid=False)
+        retriever = elastic_search.as_retriever(search_kwargs={"k": 20})
+        logger.info(f"Created Elasticsearch retriever with k=20 for query: {query[:50]}...")
+        
+        # Test the retriever
+        test_docs = retriever.get_relevant_documents(query[:100])
+        unique_pmids = set(doc.metadata.get('pubmed_id') for doc in test_docs if doc.metadata.get('pubmed_id'))
+        logger.info(f"Elasticsearch retriever test: {len(test_docs)} chunks from {len(unique_pmids)} unique articles")
+        
+    except Exception as e:
+        logger.warning(f"Elasticsearch retriever failed: {e}, falling back to FAISS")
+        # Fallback to FAISS retriever if Elasticsearch fails
+        retriever = db.as_retriever(search_kwargs={"k": 20})
+        logger.info("Using FAISS retriever as fallback")
+        
+        # Test FAISS retriever
+        try:
+            test_docs = retriever.get_relevant_documents(query[:100])
+            unique_pmids = set(doc.metadata.get('pubmed_id') for doc in test_docs if doc.metadata.get('pubmed_id'))
+            logger.info(f"FAISS retriever test: {len(test_docs)} chunks from {len(unique_pmids)} unique articles")
+        except Exception as faiss_error:
+            logger.error(f"FAISS retriever also failed: {faiss_error}")
+            raise HTTPException(status_code=500, detail=f"Both Elasticsearch and FAISS retrievers failed")
+    
     return retriever
 
 async def fetch_data_background(request: TopicRequest, topic_id: str):
@@ -1299,15 +1351,6 @@ def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
     
     # Create a retriever with compression to get more relevant context
     retriever = get_vectorstore_retriever(topic_id, query)
-
-    # ADD THESE LINES TO VERIFY RETRIEVAL
-    try:
-        test_docs = retriever.get_relevant_documents(query[:100])  # Use truncated query for test
-        unique_pmids = set(doc.metadata.get('pubmed_id') for doc in test_docs if doc.metadata.get('pubmed_id'))
-        logger.info(f"Retrieved {len(test_docs)} chunks from {len(unique_pmids)} unique articles for topic {topic_id}")
-    except Exception as e:
-        logger.warning(f"Could not test retriever: {e}")
-    # END OF ADDED LINES
     
     # Create the chain
     logger.info(f"Chain components: LLM type: {type(llm).__name__}, " 
@@ -1454,29 +1497,42 @@ async def answer_query(request: QueryRequest):
 
         conversation_id = request.conversation_id or str(uuid.uuid4())
 
-        # Try to set up the LangChain ConversationalRetrievalChain
+        # Try to set up the LangChain ConversationalRetrievalChain with better error handling
         try:
             chain = get_or_create_chain(request.topic_id, conversation_id, request.query)
+            if not chain:
+                raise HTTPException(status_code=500, detail="Failed to create conversation chain")
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
         except Exception as e:
-            logger.error(f"Error setting up LangChain ConversationalRetrievalChain: {str(e)}")
-            raise HTTPException(status_code=500, detail="Error setting up conversational chain")
+            logger.error(f"Error setting up conversation chain: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error setting up conversational chain: {str(e)}")
 
         logger.info(f"Starting chain processing for query: {request.query}")
 
-        result = chain.invoke({"question": request.query})
-        answer = result.get("answer", "Sorry, No Answer")
+        try:
+            result = chain.invoke({"question": request.query})
+            answer = result.get("answer", "Sorry, I couldn't generate an answer to your question.")
+        except Exception as e:
+            logger.error(f"Error during chain invocation: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=f"Error processing your question: {str(e)}")
 
         # Add logging to verify the answer is being extracted correctly
         logger.info(f"Question: {request.query}")
         logger.info(f"Raw result keys: {result.keys()}")
+        logger.info(f"Answer length: {len(answer) if answer else 0}")
 
         return {"response": answer, "conversation_id": conversation_id}
     
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in query processing: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Unexpected error in query processing: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="An unexpected error occurred while processing your question")
 
 @app.get("/topic/{topic_id}/status")
 async def check_topic_status(topic_id: str):

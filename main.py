@@ -492,16 +492,29 @@ def get_vectorstore_retriever(topic_id, query):
         raise HTTPException(status_code=500, detail=f"Failed to load FAISS index: {str(e)}")
     
     
-#     retriever = vector_store.as_retriever(
-#     search_type="similarity",
-#     search_kwargs={"k": 5},
-# )
-
+    # FIX: Adjust the retriever configuration to avoid RRF error
+    # When using hybrid search with RRF, we need to ensure rank_window_size >= k
+    k_value = 20  # Reduced from 40 to avoid the error
+    
     retriever = elastic_search.as_retriever(
-        search_kwargs={"k": 40}
+        search_type="similarity",  # Change to similarity search to avoid RRF issue
+        search_kwargs={
+            "k": k_value,
+            # If you need hybrid search, uncomment and adjust:
+            # "rank_window_size": max(k_value, 100)  # Ensure rank_window_size >= k
+        }
     )
     
-    logger.info(query)
+    # Alternative: If you specifically need hybrid search with RRF
+    # retriever = elastic_search.as_retriever(
+    #     search_kwargs={
+    #         "k": 20,
+    #         "hybrid": True,
+    #         "rank_window_size": 100  # Must be >= k value
+    #     }
+    # )
+    
+    logger.info(f"Retriever configured with k={k_value} for query: {query}")
     return retriever
 
 
@@ -708,15 +721,17 @@ async def lifespan(app: FastAPI):
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/multi-qa-mpnet-base-dot-v1")
         vector_store = InMemoryVectorStore(embeddings)
 
+        # FIX: Initialize Elasticsearch with proper configuration
         elastic_search = ElasticsearchStore(
-    es_cloud_id="My_Elasticsearch_project:dXMtZWFzdC0xLmF3cy5lbGFzdGljLmNsb3VkJGUwZGVmMDhkN2YxMzRhZDJiMzgyYmNlMTBmOGZkZGQ4LmVzJGUwZGVmMDhkN2YxMzRhZDJiMzgyYmNlMTBmOGZkZGQ4Lmti",
-    es_api_key="ZXBJckY1Y0JrRFlSNHR5WlcxWEI6X1ZvUHhGWEdrSXhKRHMtRkltbWhzUQ==",
-    index_name="search-vivum-rag",
-    embedding=embeddings,
-    strategy=DenseVectorStrategy(
-            hybrid = "true"
+            es_cloud_id="My_Elasticsearch_project:dXMtZWFzdC0xLmF3cy5lbGFzdGljLmNsb3VkJGUwZGVmMDhkN2YxMzRhZDJiMzgyYmNlMTBmOGZkZGQ4LmVzJGUwZGVmMDhkN2YxMzRhZDJiMzgyYmNlMTBmOGZkZGQ4Lmti",
+            es_api_key="ZXBJckY1Y0JrRFlSNHR5WlcxWEI6X1ZvUHhGWEdrSXhKRHMtRkltbWhzUQ==",
+            index_name="search-vivum-rag",
+            embedding=embeddings,
+            strategy=DenseVectorStrategy(
+                # Remove or set to False to avoid RRF issues initially
+                hybrid=False  # Changed from "true" to False
+            )
         )
-)
         
         # Initialize LLM - Using Llama hosted model
         logger.info("Loading Llama model")

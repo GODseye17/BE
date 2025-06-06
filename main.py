@@ -1315,7 +1315,7 @@ def get_vectorstore_retriever(topic_id, query):
         )
         
         # CRITICAL CHANGE: Use the topic-specific FAISS retriever, NOT elastic_search!
-        retriever = db.as_retriever(search_kwargs={"k": 50})
+        retriever = db.as_retriever(search_kwargs={"k": 100})
         logger.info(f"Created topic-specific FAISS retriever for topic {topic_id}")
         
         # Verify it works by doing a test search

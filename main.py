@@ -37,6 +37,10 @@ from together import Together
 from datetime import datetime, timezone, timedelta
 import re
 from xml.etree import ElementTree as ET
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -74,15 +78,20 @@ prompt_rag = PromptTemplate(
 logging.basicConfig(level=logging.INFO)
 
 # Supabase setup
-supabase_url = "https://emefyicilkiaaqkbjsjy.supabase.co"
-supabase_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVtZWZ5aWNpbGtpYWFxa2Jqc2p5Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NTMzMzMxOCwiZXhwIjoyMDYwOTA5MzE4fQ.oQv782SBbK0VQPy6wuQS0oh1sfF9mcBE8dcR1J4W0SA"
+# Supabase setup - credentials from environment
+supabase_url = os.getenv("SUPABASE_URL")
+supabase_key = os.getenv("SUPABASE_KEY")
 
+if not supabase_url or not supabase_key:
+    logger.error("SUPABASE_URL and SUPABASE_KEY must be set in environment variables")
+    raise ValueError("Missing Supabase credentials")
 # Global clients
 supabase: Optional[Client] = None
 llm = None
 embeddings = None
-vector_store = None
-elastic_search = None
+# REMOVED: Global vector stores that caused contamination
+# vector_store = None  # DEPRECATED - use topic-specific stores only
+# elastic_search = None  # DEPRECATED - use topic-specific stores only
 
 # Cache for conversation chains and vector stores
 topic_vectorstores = {}
@@ -835,12 +844,14 @@ splitter = RecursiveCharacterTextSplitter(
     separators=["\n\n", "\n", ".", " "]
 )
 
-def create_content_chunks(article_data):
+def create_content_chunks(article_data, topic_id):
     """Create content chunks with proper content/metadata separation"""
     chunks = []
     
     # Rich metadata for filtering and citations
+    # Rich metadata for filtering and citations
     base_metadata = {
+        "topic_id": topic_id,  # CRITICAL: Add this line
         "pubmed_id": article_data.get('pmid', 'unknown'),
         "title": article_data.get('title', 'No Title'),
         "authors": article_data.get('authors', 'Unknown Authors'),
@@ -875,7 +886,9 @@ Abstract: {abstract}"""
     if len(abstract) > 800:
         abstract_chunks = splitter.split_text(abstract)
         for i, abs_chunk in enumerate(abstract_chunks):
+            
             abstract_metadata = base_metadata.copy()
+            abstract_metadata["topic_id"] = topic_id  # ENSURE topic_id is preserved
             abstract_metadata["chunk_type"] = "abstract_split"
             abstract_metadata["chunk_index"] = i
             abstract_metadata["chunk_id"] = f"{pmid}_abs_{i}"
@@ -886,6 +899,36 @@ Abstract: {abstract}"""
             })
     
     return chunks
+
+def create_faiss_store_in_batches(docs, topic_id, batch_size=10):
+    """Create FAISS store with batch processing for better performance"""
+    vectorstore_path = Path("vectorstores") / str(topic_id)
+    vectorstore_path.mkdir(parents=True, exist_ok=True)
+    
+    if not docs:
+        raise ValueError("No documents to process")
+    
+    logger.info(f"Creating FAISS store with {len(docs)} documents in batches of {batch_size}")
+    
+    # Process first batch to create the store
+    first_batch = docs[:batch_size]
+    db = FAISS.from_documents(first_batch, embeddings)
+    logger.info(f"Initialized FAISS store with first {len(first_batch)} documents")
+    
+    # Add remaining documents in batches
+    for i in range(batch_size, len(docs), batch_size):
+        batch = docs[i:i+batch_size]
+        try:
+            db.add_documents(batch)
+            logger.info(f"Processed batch {i//batch_size + 1} of {(len(docs)-1)//batch_size + 1} ({len(batch)} docs)")
+        except Exception as e:
+            logger.warning(f"Error processing batch {i//batch_size + 1}: {e}")
+            continue
+    
+    # Save the complete store
+    db.save_local(str(vectorstore_path))
+    logger.info(f"Saved FAISS store to {vectorstore_path}")
+    return db
 
 # ============================================================================
 # FETCH PUBMED DATA FUNCTION (UPDATED)
@@ -947,6 +990,10 @@ async def fetch_pubmed_data(topics: Optional[List[str]] = None, operator: str = 
 
         logger.info(f"✅ Found {len(article_ids)} articles (total available: {total_count}). Fetching details...")
 
+
+        if len(article_ids) > 20:
+            logger.info(f"⏳ Fetching {len(article_ids)} articles - this may take 30-60 seconds...")
+
         # Step 2: Fetch article details (batch fetch)
         details_params = {
             "db": "pubmed",
@@ -965,6 +1012,10 @@ async def fetch_pubmed_data(topics: Optional[List[str]] = None, operator: str = 
         
         for idx, article in enumerate(root.findall(".//PubmedArticle"), start=1):
             try:
+                # Add progress logging every 10 articles
+                if idx % 10 == 0:
+                    logger.info(f"📄 Processing article {idx}/{len(root.findall('.//PubmedArticle'))}...")
+                
                 # Extract comprehensive article data
                 article_data = extract_enhanced_article_data(article, idx)
                 
@@ -974,7 +1025,7 @@ async def fetch_pubmed_data(topics: Optional[List[str]] = None, operator: str = 
                     continue
 
                 # Create content chunks for embedding
-                content_chunks = create_content_chunks(article_data)
+                content_chunks = create_content_chunks(article_data, topic_id)
                 
                 # Add chunks as documents
                 for chunk in content_chunks:
@@ -1003,13 +1054,14 @@ async def fetch_pubmed_data(topics: Optional[List[str]] = None, operator: str = 
             return False
 
         # Step 4: Create vector store
+        # Step 4: Create vector store with batching for better performance
         try:
-            temp = FAISS.from_documents(docs, embeddings)
-            temp.save_local(f"vectorstores/{topic_id}")
-            ids = vector_store.add_documents(documents=docs)
-            _ = elastic_search.add_documents(documents=docs)
+            # Use batch processing for faster embedding creation
+            db = create_faiss_store_in_batches(docs, topic_id, batch_size=10)
+            logger.info(f"✅ Created topic-specific FAISS store for topic {topic_id} with {len(docs)} chunks")
         except Exception as e:
-            logger.warning(f"⚠️ Vector store error: {e}")
+            logger.error(f"❌ Vector store error: {e}")
+            raise  # Re-raise to mark the fetch as failed
 
         # Step 5: Store metadata to Supabase
         try:
@@ -1164,32 +1216,51 @@ async def lifespan(app: FastAPI):
         
         # Initialize embedding model - HuggingFace for embeddings
         logger.info("Loading embedding model")
-        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/multi-qa-mpnet-base-dot-v1")
-        vector_store = InMemoryVectorStore(embeddings)
-
-        # FIXED: Configure Elasticsearch without hybrid search to avoid RRF issues
-        elastic_search = ElasticsearchStore(
-            es_cloud_id="My_Elasticsearch_project:dXMtZWFzdC0xLmF3cy5lbGFzdGljLmNsb3VkJGUwZGVmMDhkN2YxMzRhZDJiMzgyYmNlMTBmOGZkZGQ4LmVzJGUwZGVmMDhkN2YxMzRhZDJiMzgyYmNlMTBmOGZkZGQ4Lmti",
-            es_api_key="ZXBJckY1Y0JrRFlSNHR5WlcxWEI6X1ZvUHhGWEdrSXhKRHMtRkltbWhzUQ==",
-            index_name="search-vivum-rag",
-            embedding=embeddings,
-            strategy=DenseVectorStrategy(hybrid=False)  # DISABLED HYBRID TO AVOID RRF ISSUE
-        )
-        logger.info("Elasticsearch connection established (hybrid search disabled)")
+        embedding_model = os.getenv("EMBEDDING_MODEL", "sentence-transformers/multi-qa-mpnet-base-dot-v1")
+        embeddings = HuggingFaceEmbeddings(model_name=embedding_model)
+        logger.info(f"Loaded embedding model: {embedding_model}")
+        
+        # REMOVED: Global vector stores - now using only topic-specific FAISS stores
+        # vector_store = InMemoryVectorStore(embeddings)  # DEPRECATED
+        # elastic_search = ElasticsearchStore(...)  # DEPRECATED
+        logger.info("Using topic-specific FAISS stores only - no global vector stores")
         
         # Initialize LLM - Using Llama hosted model
         logger.info("Loading Llama model")
         try:
+            together_api_key = os.getenv("TOGETHER_API_KEY")
+            if not together_api_key:
+                raise ValueError("TOGETHER_API_KEY must be set in environment variables")
+                
             llm = TogetherChatModel(
-                api_key="7d8e09c3ede29df9e06c6858304734f62ad95b458eb219fa3abf53ecef490e09",
-                model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-                temperature=0.5,
-                max_tokens=4096,
+                api_key=together_api_key,
+                model=os.getenv("LLM_MODEL", "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"),
+                temperature=float(os.getenv("LLM_TEMPERATURE", "0.5")),
+                max_tokens=int(os.getenv("LLM_MAX_TOKENS", "4096")),
                 streaming=True
             )
             logger.info("LLM loaded successfully")
         except Exception as e:
             logger.error(f"Failed to load LLM: {str(e)}")
+        
+        # Start automatic cleanup task
+        cleanup_interval_hours = int(os.getenv("CLEANUP_INTERVAL_HOURS", "24"))
+        cleanup_days_old = int(os.getenv("CLEANUP_DAYS_OLD", "7"))
+        
+        async def auto_cleanup_task():
+            """Automatically clean up old topics periodically"""
+            while True:
+                try:
+                    await asyncio.sleep(cleanup_interval_hours * 3600)  # Convert hours to seconds
+                    logger.info(f"🧹 Running automatic cleanup for topics older than {cleanup_days_old} days")
+                    result = await cleanup_old_topics(cleanup_days_old)
+                    logger.info(f"🧹 Automatic cleanup completed: {result}")
+                except Exception as e:
+                    logger.error(f"Error in automatic cleanup: {e}")
+        
+        # Create the cleanup task
+        asyncio.create_task(auto_cleanup_task())
+        logger.info(f"🧹 Automatic cleanup scheduled every {cleanup_interval_hours} hours for topics older than {cleanup_days_old} days")
             
     except Exception as e:
         logger.error(f"Startup error: {str(e)}")
@@ -1214,54 +1285,76 @@ app.add_middleware(
 # ============================================================================
 
 def get_vectorstore_retriever(topic_id, query):
-    # Define the index path
-    index_path = f"vectorstores/{topic_id}/index.faiss"
-
+    """Get topic-specific FAISS retriever - NO GLOBAL STORES"""
+    # CRITICAL: Only use topic-specific FAISS, never global stores
     vectorstore_path = Path("vectorstores") / str(topic_id)
+    index_path = vectorstore_path / "index.faiss"
     
-    # Check if the FAISS index file exists
-    if not os.path.exists(index_path):
-        logger.error(f"FAISS index file not found at: {index_path}")
+    # Verify the vector store exists
+    if not vectorstore_path.exists():
+        logger.error(f"Vectorstore directory not found: {vectorstore_path}")
         raise HTTPException(
             status_code=404, 
-            detail=f"FAISS index file not found for topic {topic_id}. Please check the vectorstore creation process."
+            detail=f"No vector store found for topic {topic_id}. Please ensure data fetching completed successfully."
         )
     
-    # Load the FAISS index with proper error handling
-    try:
-        db = FAISS.load_local(str(vectorstore_path), embeddings, allow_dangerous_deserialization=True)
-        logger.info(f"Loaded FAISS index file at: {index_path}")
-    except Exception as e:
-        logger.error(f"Error loading FAISS index: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to load FAISS index: {str(e)}")
+    if not index_path.exists():
+        logger.error(f"FAISS index file not found: {index_path}")
+        raise HTTPException(
+            status_code=404, 
+            detail=f"FAISS index file not found for topic {topic_id}. The data fetching may have failed."
+        )
     
-    # FIXED: Use appropriate retriever with error handling and reduced k value
     try:
-        # Use Elasticsearch with smaller k value (no more RRF issues since hybrid=False)
-        retriever = elastic_search.as_retriever(search_kwargs={"k": 20})
-        logger.info(f"Created Elasticsearch retriever with k=20 for query: {query[:50]}...")
+        # Load ONLY the topic-specific FAISS store
+        logger.info(f"Loading topic-specific FAISS from: {vectorstore_path}")
+        db = FAISS.load_local(
+            str(vectorstore_path), 
+            embeddings, 
+            allow_dangerous_deserialization=True
+        )
         
-        # Test the retriever
-        test_docs = retriever.get_relevant_documents(query[:100])
-        unique_pmids = set(doc.metadata.get('pubmed_id') for doc in test_docs if doc.metadata.get('pubmed_id'))
-        logger.info(f"Elasticsearch retriever test: {len(test_docs)} chunks from {len(unique_pmids)} unique articles")
-        
-    except Exception as e:
-        logger.warning(f"Elasticsearch retriever failed: {e}, falling back to FAISS")
-        # Fallback to FAISS retriever if Elasticsearch fails
+        # CRITICAL CHANGE: Use the topic-specific FAISS retriever, NOT elastic_search!
         retriever = db.as_retriever(search_kwargs={"k": 20})
-        logger.info("Using FAISS retriever as fallback")
+        logger.info(f"Created topic-specific FAISS retriever for topic {topic_id}")
         
-        # Test FAISS retriever
+        # Verify it works by doing a test search
         try:
-            test_docs = retriever.get_relevant_documents(query[:100])
+            test_docs = retriever.get_relevant_documents(query[:100] if len(query) > 100 else query)
             unique_pmids = set(doc.metadata.get('pubmed_id') for doc in test_docs if doc.metadata.get('pubmed_id'))
-            logger.info(f"FAISS retriever test: {len(test_docs)} chunks from {len(unique_pmids)} unique articles")
-        except Exception as faiss_error:
-            logger.error(f"FAISS retriever also failed: {faiss_error}")
-            raise HTTPException(status_code=500, detail=f"Both Elasticsearch and FAISS retrievers failed")
-    
-    return retriever
+            logger.info(f"Topic-specific FAISS test: {len(test_docs)} chunks from {len(unique_pmids)} unique articles")
+            
+            # CRITICAL: Verify all documents belong to this topic (if topic_id is in metadata)
+            wrong_topic_count = 0
+            for doc in test_docs[:10]:  # Check first 10 docs
+                doc_topic_id = doc.metadata.get('topic_id', None)
+                if doc_topic_id and doc_topic_id != topic_id:
+                    wrong_topic_count += 1
+                    logger.error(f"CRITICAL: Found document from wrong topic! Expected {topic_id}, got {doc_topic_id}")
+            
+            if wrong_topic_count > 0:
+                logger.error(f"Data contamination detected! {wrong_topic_count} documents from wrong topics")
+                # Don't fail here if old data doesn't have topic_id, just log warning
+                if wrong_topic_count > len(test_docs) * 0.5:  # If more than 50% are wrong
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Severe data contamination detected! Please re-fetch this topic."
+                    )
+        except Exception as test_error:
+            logger.warning(f"Test retrieval failed: {test_error}, but continuing with retriever")
+        
+        return retriever
+        
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
+    except Exception as e:
+        logger.error(f"Error loading topic-specific FAISS: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to load vector store: {str(e)}"
+        )
 
 async def fetch_data_background(request: TopicRequest, topic_id: str):
     """Background task to fetch data from PubMed with enhanced multi-topic support"""
@@ -1274,7 +1367,9 @@ async def fetch_data_background(request: TopicRequest, topic_id: str):
             filters_dict = request.filters.dict(exclude_none=True)
         
         # Set timeout for the fetch operation
-        fetch_timeout = 120  # seconds
+        # Set timeout based on number of results requested
+        fetch_timeout = 60 + (request.max_results * 2)  # Base 60s + 2s per article
+        logger.info(f"Setting fetch timeout to {fetch_timeout}s for {request.max_results} articles")
         try:
             # Run with timeout using the enhanced fetch function
             success = await asyncio.wait_for(
@@ -1334,6 +1429,93 @@ def check_topic_fetch_status(topic_id: str):
     else:
         logger.error("Supabase client not initialized")
         return "database_error"
+def cleanup_topic_files(topic_id: str) -> bool:
+    """Clean up FAISS files for a specific topic"""
+    try:
+        import shutil
+        vectorstore_path = Path("vectorstores") / str(topic_id)
+        
+        if vectorstore_path.exists():
+            shutil.rmtree(vectorstore_path)
+            logger.info(f"🗑️ Cleaned up vector store files for topic {topic_id}")
+            return True
+        else:
+            logger.warning(f"Vector store path not found for topic {topic_id}")
+            return False
+    except Exception as e:
+        logger.error(f"Error cleaning up topic {topic_id}: {e}")
+        return False
+
+def cleanup_conversation_chains(topic_id: str) -> int:
+    """Clean up conversation chains for a specific topic"""
+    chains_removed = 0
+    keys_to_remove = []
+    
+    for key in conversation_chains.keys():
+        if key.startswith(f"{topic_id}:"):
+            keys_to_remove.append(key)
+    
+    for key in keys_to_remove:
+        del conversation_chains[key]
+        chains_removed += 1
+    
+    logger.info(f"🗑️ Removed {chains_removed} conversation chains for topic {topic_id}")
+    return chains_removed
+
+async def cleanup_old_topics(days_old: int = 7) -> Dict[str, int]:
+    """Clean up topics older than specified days"""
+    if not supabase:
+        return {"error": "Database not connected"}
+    
+    try:
+        # Calculate cutoff date
+        cutoff_date = (datetime.utcnow() - timedelta(days=days_old)).isoformat()
+        
+        # Get old topics
+        result = supabase.table("topics") \
+            .select("id, created_at") \
+            .lt("created_at", cutoff_date) \
+            .execute()
+        
+        old_topics = result.data if result.data else []
+        
+        cleaned_count = 0
+        failed_count = 0
+        
+        for topic in old_topics:
+            topic_id = topic["id"]
+            try:
+                # Clean up files
+                file_cleaned = cleanup_topic_files(topic_id)
+                
+                # Clean up conversation chains
+                chains_cleaned = cleanup_conversation_chains(topic_id)
+                
+                # Mark as cleaned in database (optional - you could also delete the record)
+                supabase.table("topics").update({
+                    "status": "cleaned",
+                    "cleaned_at": datetime.utcnow().isoformat()
+                }).eq("id", topic_id).execute()
+                
+                if file_cleaned:
+                    cleaned_count += 1
+                else:
+                    failed_count += 1
+                    
+            except Exception as e:
+                logger.error(f"Failed to clean topic {topic_id}: {e}")
+                failed_count += 1
+        
+        return {
+            "total_old_topics": len(old_topics),
+            "cleaned": cleaned_count,
+            "failed": failed_count,
+            "cutoff_date": cutoff_date
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in cleanup_old_topics: {e}")
+        return {"error": str(e)}
 
 def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
     """Get or create a conversation chain for this topic and conversation"""
@@ -1380,11 +1562,13 @@ def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
     conversation_chains[chain_key] = qa_chain
     
     # Clean up if we have too many chains
+    # Clean up if we have too many chains
     if len(conversation_chains) > MAX_CONVERSATIONS:
         # Remove oldest chains (simple approach)
         chains_to_remove = list(conversation_chains.keys())[:-MAX_CONVERSATIONS]
         for key in chains_to_remove:
             del conversation_chains[key]
+        logger.info(f"🗑️ Cleaned up {len(chains_to_remove)} old conversation chains (kept {MAX_CONVERSATIONS} most recent)")
 
     return qa_chain
 
@@ -1602,6 +1786,92 @@ async def get_topic_articles(topic_id: str, limit: int = 100, offset: int = 0):
     except Exception as e:
         logger.error(f"Error fetching articles for topic {topic_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.delete("/topic/{topic_id}/cleanup")
+async def cleanup_topic(topic_id: str):
+    """Manually clean up a specific topic's data"""
+    try:
+        # Check if topic exists
+        if supabase:
+            result = supabase.table("topics").select("id, status").eq("id", topic_id).execute()
+            if not result.data:
+                raise HTTPException(status_code=404, detail="Topic not found")
+        
+        # Clean up files
+        files_cleaned = cleanup_topic_files(topic_id)
+        
+        # Clean up conversation chains
+        chains_cleaned = cleanup_conversation_chains(topic_id)
+        
+        # Update database status
+        if supabase:
+            supabase.table("topics").update({
+                "status": "cleaned",
+                "cleaned_at": datetime.utcnow().isoformat()
+            }).eq("id", topic_id).execute()
+        
+        return {
+            "topic_id": topic_id,
+            "files_cleaned": files_cleaned,
+            "conversation_chains_removed": chains_cleaned,
+            "status": "cleaned"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cleaning up topic {topic_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/cleanup/old-topics")
+async def cleanup_old_topics_endpoint(days_old: int = 7):
+    """Clean up topics older than specified days"""
+    if days_old < 1:
+        raise HTTPException(status_code=400, detail="days_old must be at least 1")
+    
+    result = await cleanup_old_topics(days_old)
+    return result
+@app.get("/cleanup/status")
+async def cleanup_status():
+    """Get cleanup system status"""
+    import psutil  # You'll need to add 'psutil' to requirements.txt
+    
+    # Get disk usage
+    vectorstore_dir = Path("vectorstores")
+    total_size = 0
+    topic_count = 0
+    
+    if vectorstore_dir.exists():
+        for topic_dir in vectorstore_dir.iterdir():
+            if topic_dir.is_dir():
+                topic_count += 1
+                for file in topic_dir.rglob("*"):
+                    if file.is_file():
+                        total_size += file.stat().st_size
+    
+    # Get memory usage
+    process = psutil.Process()
+    memory_info = process.memory_info()
+    
+    return {
+        "vector_stores": {
+            "count": topic_count,
+            "total_size_mb": round(total_size / (1024 * 1024), 2),
+            "path": str(vectorstore_dir.absolute())
+        },
+        "conversation_chains": {
+            "count": len(conversation_chains),
+            "max_allowed": MAX_CONVERSATIONS
+        },
+        "memory_usage": {
+            "rss_mb": round(memory_info.rss / (1024 * 1024), 2),
+            "vms_mb": round(memory_info.vms / (1024 * 1024), 2)
+        },
+        "cleanup_config": {
+            "auto_cleanup_interval_hours": os.getenv("CLEANUP_INTERVAL_HOURS", "24"),
+            "auto_cleanup_days_old": os.getenv("CLEANUP_DAYS_OLD", "7")
+        }
+    }
 
 @app.post("/test-filters")
 async def test_filters(request: TopicRequest):
@@ -1632,6 +1902,23 @@ async def test_filters(request: TopicRequest):
         }
     except Exception as e:
         return {"error": str(e)}
+    
+@app.get("/test-performance")
+async def test_performance():
+    """Test endpoint to check system performance"""
+    import time
+    
+    # Test embedding speed
+    start = time.time()
+    test_docs = [Document(page_content=f"Test document {i}", metadata={"test": i}) for i in range(10)]
+    test_embeddings = embeddings.embed_documents([doc.page_content for doc in test_docs])
+    embed_time = time.time() - start
+    
+    return {
+        "embedding_model": type(embeddings).__name__,
+        "test_embedding_time": f"{embed_time:.2f}s for 10 documents",
+        "estimated_time_per_100_docs": f"{embed_time * 10:.1f}s"
+    }
 
 @app.get("/health")
 def health_check():

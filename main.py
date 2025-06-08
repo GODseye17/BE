@@ -66,9 +66,16 @@ CRITICAL INSTRUCTIONS:
 - If the user asks for "all", "each", "every", or "fetched" articles, you MUST include every single unique article
 - When creating tables or comprehensive lists, include ALL articles without exception
 - For focused questions, synthesize insights from the most relevant articles
+- PMIDs are provided in square brackets like [PMID: 12345678] 
+- ALWAYS use the exact PMID numbers provided - NEVER replace them with XXXXXXXX or any placeholder
+- The PMIDs in the context are real and should be cited exactly as shown
+- First, count the unique articles (by PMID) provided in the context
+- State this count at the beginning of your response: "I have access to [X] articles on this topic"
+
+IMPORTANT: When you see [PMID: followed by numbers], copy those exact numbers. Do not use XXXXXXXX as a placeholder.
 
 Remember to:
-1. Reference using "Article X (PMID: XXXXXXXX)" format
+1. Count unique articles by PMID
 2. Synthesize insights across articles when appropriate
 3. Format citations in requested styles
 4. Ask a relevant follow-up question

@@ -50,6 +50,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 # ============================================================================
 
 # System prompt
+# System prompt
 prompt = """
 You are Vivum, a research assistant with access to articles on the user's research topic.
 
@@ -59,13 +60,20 @@ Context:
 Question:
 {question}
 
+CRITICAL INSTRUCTIONS:
+- First, count the unique articles (by PMID) provided in the context
+- State this count at the beginning of your response: "I have access to [X] articles on this topic"
+- If the user asks for "all", "each", "every", or "fetched" articles, you MUST include every single unique article
+- When creating tables or comprehensive lists, include ALL articles without exception
+- For focused questions, synthesize insights from the most relevant articles
+
 Remember to:
-1. Count all articles provided (may vary based on relevance to query)
-2. Reference using "Article X (PMID: XXXXXXXX)"
-3. Synthesize insights from all articles
-4. Format citations in requested styles
-5. Ask a follow-up question
-6. End with "Referenced Articles:" section
+1. Reference using "Article X (PMID: XXXXXXXX)" format
+2. Synthesize insights across articles when appropriate
+3. Format citations in requested styles
+4. Ask a relevant follow-up question
+5. End with "Referenced Articles:" section listing all articles used
+6. For comprehensive requests (tables, lists), ensure EVERY article is included
 7. Check error prevention list for citations
 """
 
@@ -1285,7 +1293,7 @@ app.add_middleware(
 # ============================================================================
 
 def get_vectorstore_retriever(topic_id, query):
-    """Get topic-specific FAISS retriever - NO GLOBAL STORES"""
+    """Get topic-specific FAISS retriever with query-aware k selection"""
     # CRITICAL: Only use topic-specific FAISS, never global stores
     vectorstore_path = Path("vectorstores") / str(topic_id)
     index_path = vectorstore_path / "index.faiss"
@@ -1314,36 +1322,74 @@ def get_vectorstore_retriever(topic_id, query):
             allow_dangerous_deserialization=True
         )
         
-        # CRITICAL CHANGE: Use the topic-specific FAISS retriever, NOT elastic_search!
-        retriever = db.as_retriever(search_kwargs={"k": 300})
-        logger.info(f"Created topic-specific FAISS retriever for topic {topic_id}")
+        # Determine k based on query type
+        query_lower = query.lower()
         
-        # Verify it works by doing a test search
+        # Check if query asks for comprehensive information
+        comprehensive_keywords = [
+            "all articles", "each article", "every article", 
+            "create a table", "list all", "comprehensive", 
+            "summary of all", "analyze all", "fetched"
+        ]
+        
+        is_comprehensive = any(keyword in query_lower for keyword in comprehensive_keywords)
+        
+        if is_comprehensive:
+            # For comprehensive queries, get more chunks
+            # Get article count from Supabase
+            article_count = 20  # default
+            if supabase:
+                try:
+                    result = supabase.table("articles").select("pubmed_id").eq("topic_id", topic_id).execute()
+                    article_count = len(result.data) if result.data else 20
+                except Exception as e:
+                    logger.warning(f"Could not get article count: {e}")
+                    article_count = 20
+            
+            # Use 3 chunks per article for comprehensive queries
+            k = min(article_count * 3, 100)
+            logger.info(f"📊 Comprehensive query detected - using k={k} for {article_count} articles")
+        else:
+            # For focused queries, use fewer chunks
+            k = 30
+            logger.info(f"🎯 Focused query - using k={k}")
+        
+        # Create retriever with MMR for diversity
+        retriever = db.as_retriever(
+            search_type="mmr",  # Maximum Marginal Relevance for diversity
+            search_kwargs={
+                "k": k,
+                "fetch_k": k * 2,  # Fetch more for MMR to choose from
+                "lambda_mult": 0.7  # Balance between relevance and diversity
+            }
+        )
+        
+        # Test retrieval
         try:
             test_docs = retriever.get_relevant_documents(query[:100] if len(query) > 100 else query)
             unique_pmids = set(doc.metadata.get('pubmed_id') for doc in test_docs if doc.metadata.get('pubmed_id'))
-            logger.info(f"Topic-specific FAISS test: {len(test_docs)} chunks from {len(unique_pmids)} unique articles")
+            logger.info(f"✅ Retrieved {len(test_docs)} chunks from {len(unique_pmids)} unique articles")
             
-            # CRITICAL: Verify all documents belong to this topic (if topic_id is in metadata)
-            wrong_topic_count = 0
-            for doc in test_docs[:10]:  # Check first 10 docs
-                doc_topic_id = doc.metadata.get('topic_id', None)
-                if doc_topic_id and doc_topic_id != topic_id:
-                    wrong_topic_count += 1
-                    logger.error(f"CRITICAL: Found document from wrong topic! Expected {topic_id}, got {doc_topic_id}")
-            
-            if wrong_topic_count > 0:
-                logger.error(f"Data contamination detected! {wrong_topic_count} documents from wrong topics")
-                # Don't fail here if old data doesn't have topic_id, just log warning
-                if wrong_topic_count > len(test_docs) * 0.5:  # If more than 50% are wrong
-                    raise HTTPException(
-                        status_code=500,
-                        detail="Severe data contamination detected! Please re-fetch this topic."
-                    )
+            # Log if comprehensive query might not have enough articles
+            if is_comprehensive and article_count > 0:
+                coverage = (len(unique_pmids) / article_count) * 100
+                logger.info(f"📈 Article coverage: {len(unique_pmids)}/{article_count} ({coverage:.1f}%)")
+                
         except Exception as test_error:
             logger.warning(f"Test retrieval failed: {test_error}, but continuing with retriever")
         
         return retriever
+        
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
+    except Exception as e:
+        logger.error(f"Error loading topic-specific FAISS: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to load vector store: {str(e)}"
+        )
         
     except HTTPException:
         raise  # Re-raise HTTP exceptions
@@ -1708,7 +1754,39 @@ async def answer_query(request: QueryRequest):
         logger.info(f"Raw result keys: {result.keys()}")
         logger.info(f"Answer length: {len(answer) if answer else 0}")
 
+        # Add logging to verify the answer is being extracted correctly
+        logger.info(f"Question: {request.query}")
+        logger.info(f"Raw result keys: {result.keys()}")
+        logger.info(f"Answer length: {len(answer) if answer else 0}")
+
+        # Validate comprehensive responses
+        comprehensive_keywords = ["all articles", "each article", "create a table", "every article", "fetched"]
+        if any(keyword in request.query.lower() for keyword in comprehensive_keywords):
+            # Count PMIDs in response
+            import re
+            pmids_in_response = set(re.findall(r'PMID: (\d+)', answer))
+            
+            # Get expected article count
+            if supabase:
+                try:
+                    articles_result = supabase.table("articles").select("pubmed_id").eq("topic_id", request.topic_id).execute()
+                    expected_count = len(articles_result.data)
+                    
+                    # Log coverage statistics
+                    coverage = (len(pmids_in_response) / expected_count * 100) if expected_count > 0 else 0
+                    logger.info(f"📊 Comprehensive query coverage: {len(pmids_in_response)}/{expected_count} articles ({coverage:.1f}%)")
+                    
+                    # Add note if significant discrepancy
+                    if len(pmids_in_response) < expected_count * 0.5:  # Less than 50%
+                        logger.warning(f"⚠️ Low coverage for comprehensive query: only {coverage:.1f}%")
+                        answer += f"\n\n📝 **Note**: This response includes {len(pmids_in_response)} out of {expected_count} available articles. For a complete listing of all articles, you may want to request the information in smaller, more specific queries."
+                    
+                except Exception as e:
+                    logger.error(f"Error validating comprehensive response: {e}")
+
         return {"response": answer, "conversation_id": conversation_id}
+
+        
     
     except HTTPException:
         raise

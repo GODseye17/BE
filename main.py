@@ -1385,30 +1385,56 @@ def get_vectorstore_retriever(topic_id, query):
         except Exception as test_error:
             logger.warning(f"Test retrieval failed: {test_error}, but continuing with retriever")
         
-        return retriever
-        
-    except HTTPException:
-        raise  # Re-raise HTTP exceptions
-    except Exception as e:
-        logger.error(f"Error loading topic-specific FAISS: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Failed to load vector store: {str(e)}"
-        )
-        
-    except HTTPException:
-        raise  # Re-raise HTTP exceptions
-    except Exception as e:
-        logger.error(f"Error loading topic-specific FAISS: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Failed to load vector store: {str(e)}"
-        )
+        # Create a custom retriever wrapper that ensures metadata is in content
+        class MetadataIncludingRetriever:
+            def __init__(self, base_retriever):
+                self.base_retriever = base_retriever
+            
+            def get_relevant_documents(self, query):
+                docs = self.base_retriever.get_relevant_documents(query)
+                # Ensure all metadata is visible in content
+                for doc in docs:
+                    # Check if metadata is already in content
+                    if not doc.page_content.startswith("Article Information:"):
+                        metadata_header = f"""Article Information:
+PMID: {doc.metadata.get('pubmed_id', 'NOT_FOUND')}
+Title: {doc.metadata.get('title', 'No Title')}
+Authors: {doc.metadata.get('authors', 'Unknown Authors')}
+Journal: {doc.metadata.get('journal', 'Unknown Journal')}
+Publication Date: {doc.metadata.get('publication_date', 'Unknown Date')}
+URL: {doc.metadata.get('url', 'No URL')}
 
+Original Content:
+{doc.page_content}"""
+                        doc.page_content = metadata_header
+                return docs
+            
+            async def aget_relevant_documents(self, query):
+                return self.get_relevant_documents(query)
+            
+            # Add these methods to make it compatible with ConversationalRetrievalChain
+            def _get_relevant_documents(self, query):
+                return self.get_relevant_documents(query)
+            
+            async def _aget_relevant_documents(self, query):
+                return await self.aget_relevant_documents(query)
+        
+        # Wrap the retriever to include metadata
+        wrapped_retriever = MetadataIncludingRetriever(retriever)
+        logger.info("✅ Using metadata-including retriever wrapper")
+        return wrapped_retriever
+        
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
+    except Exception as e:
+        logger.error(f"Error loading topic-specific FAISS: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to load vector store: {str(e)}"
+        )
+    
 async def fetch_data_background(request: TopicRequest, topic_id: str):
     """Background task to fetch data from PubMed with enhanced multi-topic support"""
     try:

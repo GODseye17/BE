@@ -74,7 +74,7 @@ CRITICAL INSTRUCTIONS:
 - First, count the unique articles (by PMID) provided in the context
 - State this count at the beginning of your response: "I have access to [X] articles on this topic"
 
-IMPORTANT: When you see [PMID: followed by numbers], copy those exact numbers. Do not use XXXXXXXX as a placeholder.
+IMPORTANT: When you see [PMID or pubmed_id: followed by numbers], copy those exact numbers. Do not use XXXXXXXX as a placeholder.
 
 Remember to:
 1. Count unique articles by PMID
@@ -1388,50 +1388,7 @@ def get_vectorstore_retriever(topic_id, query):
             logger.warning(f"Test retrieval failed: {test_error}, but continuing with retriever")
         
         # Create a custom retriever wrapper that ensures metadata is in content
-        class MetadataIncludingRetriever(BaseRetriever):
-            base_retriever: Any
-            
-            def __init__(self, base_retriever):
-                super().__init__()
-                self.base_retriever = base_retriever
-            
-            def _get_relevant_documents(
-                self, query: str, *, run_manager: Optional[CallbackManagerForRetrieverRun] = None
-            ) -> List[Document]:
-                docs = self.base_retriever.get_relevant_documents(query)
-                # Ensure all metadata is visible in content
-                for doc in docs:
-                    # Check if metadata is already in content
-                    if not doc.page_content.startswith("Article Information:"):
-                        metadata_header = f"""Article Information:
-PMID: {doc.metadata.get('pubmed_id', 'NOT_FOUND')}
-Title: {doc.metadata.get('title', 'No Title')}
-Authors: {doc.metadata.get('authors', 'Unknown Authors')}
-Journal: {doc.metadata.get('journal', 'Unknown Journal')}
-Publication Date: {doc.metadata.get('publication_date', 'Unknown Date')}
-URL: {doc.metadata.get('url', 'No URL')}
-
-Original Content:
-{doc.page_content}"""
-                        doc.page_content = metadata_header
-                return docs
-            
-            async def _aget_relevant_documents(
-                self, query: str, *, run_manager: Optional[CallbackManagerForRetrieverRun] = None
-            ) -> List[Document]:
-                return self._get_relevant_documents(query, run_manager=run_manager)
-            
-            # Add these methods to make it compatible with ConversationalRetrievalChain
-            def _get_relevant_documents(self, query):
-                return self.get_relevant_documents(query)
-            
-            async def _aget_relevant_documents(self, query):
-                return await self.aget_relevant_documents(query)
-        
-        # Wrap the retriever to include metadata
-        wrapped_retriever = MetadataIncludingRetriever(retriever)
-        logger.info("✅ Using metadata-including retriever wrapper")
-        return wrapped_retriever
+        return retriever
         
     except HTTPException:
         raise  # Re-raise HTTP exceptions

@@ -31,6 +31,8 @@ from langchain.chains import ConversationalRetrievalChain
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.memory import ConversationBufferMemory
 from langchain.prompts import PromptTemplate
+from langchain.schema import BaseRetriever
+from langchain.callbacks.manager import CallbackManagerForRetrieverRun
 
 from together import Together
 
@@ -1386,11 +1388,16 @@ def get_vectorstore_retriever(topic_id, query):
             logger.warning(f"Test retrieval failed: {test_error}, but continuing with retriever")
         
         # Create a custom retriever wrapper that ensures metadata is in content
-        class MetadataIncludingRetriever:
+        class MetadataIncludingRetriever(BaseRetriever):
+            base_retriever: Any
+            
             def __init__(self, base_retriever):
+                super().__init__()
                 self.base_retriever = base_retriever
             
-            def get_relevant_documents(self, query):
+            def _get_relevant_documents(
+                self, query: str, *, run_manager: Optional[CallbackManagerForRetrieverRun] = None
+            ) -> List[Document]:
                 docs = self.base_retriever.get_relevant_documents(query)
                 # Ensure all metadata is visible in content
                 for doc in docs:
@@ -1409,8 +1416,10 @@ Original Content:
                         doc.page_content = metadata_header
                 return docs
             
-            async def aget_relevant_documents(self, query):
-                return self.get_relevant_documents(query)
+            async def _aget_relevant_documents(
+                self, query: str, *, run_manager: Optional[CallbackManagerForRetrieverRun] = None
+            ) -> List[Document]:
+                return self._get_relevant_documents(query, run_manager=run_manager)
             
             # Add these methods to make it compatible with ConversationalRetrievalChain
             def _get_relevant_documents(self, query):

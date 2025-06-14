@@ -37,7 +37,9 @@ async def fetch_data_background(request: TopicRequest, topic_id: str):
                     topic_id=topic_id,
                     max_results=request.max_results,
                     filters=filters_dict,
-                    advanced_query=request.advanced_query
+                    advanced_query=request.advanced_query,
+                    auto_transform=request.auto_transform if hasattr(request, 'auto_transform') else True,
+                    create_embeddings=request.create_embeddings if hasattr(request, 'create_embeddings') else True
                 ),
                 timeout=fetch_timeout
             )

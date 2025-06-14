@@ -60,6 +60,7 @@ class PubMedFiltersModel(BaseModel):
         return v
 
 class TopicRequest(BaseModel):
+    create_embeddings: Optional[bool] = Field(True, description="Create embeddings for RAG (false for metadata-only)")
     # Multi-topic search fields (NEW)
     topics: Optional[List[str]] = Field(None, description="List of search topics for multi-topic search")
     operator: Optional[BooleanOperator] = Field(BooleanOperator.AND, description="Boolean operator to combine topics")
@@ -74,6 +75,9 @@ class TopicRequest(BaseModel):
     source: Optional[str] = Field("pubmed", description="Data source (pubmed/scopus)")
     max_results: Optional[int] = Field(20, ge=1, le=10000, description="Maximum number of results")
     filters: Optional[PubMedFiltersModel] = None
+    
+    # Query transformation control (NEW)
+    auto_transform: Optional[bool] = Field(True, description="Automatically transform natural language queries")
 
     @model_validator(mode='before')
     @classmethod

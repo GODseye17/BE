@@ -10,6 +10,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 
 from models import TopicRequest, QueryRequest, TopicResponse, ChatResponse
+from pubmed import QueryPreprocessor
 from core.globals import get_globals
 from utils import (
     check_topic_fetch_status, get_or_create_chain, 
@@ -396,6 +397,42 @@ async def test_performance():
         "test_embedding_time": f"{embed_time:.2f}s for 10 documents",
         "estimated_time_per_100_docs": f"{embed_time * 10:.1f}s"
     }
+
+@router.post("/transform-query")
+async def transform_query(request: dict):
+    """Transform natural language query to PubMed syntax"""
+    try:
+        user_query = request.get("query", "")
+        if not user_query:
+            raise HTTPException(status_code=400, detail="Query is required")
+        
+        preprocessor = QueryPreprocessor()
+        
+        # Check if it's natural language
+        is_natural = preprocessor.looks_like_natural_language(user_query)
+        
+        if not is_natural:
+            return {
+                "original_query": user_query,
+                "transformed_query": user_query,
+                "is_transformed": False,
+                "explanation": "Query already appears to be in PubMed syntax"
+            }
+        
+        # Transform the query
+        transformed = preprocessor.transform_natural_to_pubmed(user_query)
+        explanation = preprocessor.get_query_explanation(user_query, transformed)
+        
+        return {
+            "original_query": user_query,
+            "transformed_query": transformed,
+            "is_transformed": True,
+            "explanation": explanation
+        }
+        
+    except Exception as e:
+        logger.error(f"Error transforming query: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/health")
 def health_check():

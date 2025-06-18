@@ -1,0 +1,518 @@
+[
+  {
+    "content": "[PMID: 34325612]\nTitle: COVID-19 vaccine hesitancy: misinformation and perceptions of vaccine safety.\nAuthors: Kricorian, Katherine; Civen, Rachel; Equils, Ozlem\n\nAbstract: Despite COVID-19's devastating toll, many Americans remain unwilling to receive the COVID-19 vaccine. The authors conducted a US national survey to understand the health literacy of adults regarding the vaccine, as well as their COVID-19 beliefs and experiences. People who believed the COVID-19 vaccine was unsafe were less willing to receive the vaccine, knew less about the virus and were more likely to believe COVID-19 vaccine myths. On average, they were less educated, lower income, and more rural than people who believed the vaccine is safe. The results highlight the importance of developing clear health communications accessible to individuals from varied socioeconomic and educational backgrounds.",
+    "metadata": {
+      "topic_id": "08954a20-4dac-43b7-81fb-aa063f0e63fe",
+      "pubmed_id": "34325612",
+      "title": "COVID-19 vaccine hesitancy: misinformation and perceptions of vaccine safety.",
+      "authors": "Kricorian, Katherine; Civen, Rachel; Equils, Ozlem",
+      "journal": "Human vaccines & immunotherapeutics",
+      "publication_date": "2022-12-31",
+      "doi": "10.1080/21645515.2021.1950504",
+      "mesh_terms": [
+        "Adult",
+        "COVID-19",
+        "COVID-19 Vaccines",
+        "Health Communication",
+        "Humans",
+        "SARS-CoV-2",
+        "United States",
+        "Vaccination",
+        "Vaccination Hesitancy",
+        "Vaccines"
+      ],
+      "keywords": [
+        "COVID-19",
+        "SARS-COV-2",
+        "health inequities",
+        "health literacy",
+        "socioeconomic",
+        "vaccine hesitancy"
+      ],
+      "publication_types": [
+        "Journal Article"
+      ],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/34325612/",
+      "chunk_type": "title_abstract"
+    }
+  },
+  {
+    "content": "[PMID: 36457318]\nTitle: COVID-19 vaccine response and safety in patients with cancer: An overview of systematic reviews.\nAuthors: Sun, Hong; Bu, Fengjiao; Li, Ling; Zhang, Xiuwen; Yan, Jingchao; Huang, Taomin\n\nAbstract: BACKGROUND: To date, the COVID-19 pandemic does not appear to be overcome with new variants continuously emerging. The vaccination against COVID-19 has been the trend, but there are multiple systematic reviews on COVID-19 vaccines in patients with cancer, resulting in redundant and sub-optimal systematic reviews. There are still some doubts about efficacy and safety of the COVID-19 vaccine in cancer patients. PURPOSE: To identify, summarize and synthesize the available evidence of systematic reviews on response and COVID-19 vaccine safety in patients with cancer. METHODS: Multiple databases were searched from their inception to May 1, 2022 to fetch the relevant articles. Study quality was assessed by AMSTAR2. The protocol of this study was registered on PROSPERO (CRD42022327931). RESULTS: A total of 18 articles were finally included. The seroconversion rates after first dose were ranged from 37.30-54.20% in all cancers, 49.60-62.00% in solid cancers and 33.30-56.00% in hematological malignancies. The seroconversion rates after second dose were ranged from 65.30-87.70% in all cancers, 91.60-96.00% in solid cancers and 58.00-72.60% in hematological malignancies. Cancer types and types of therapy could influence vaccine response. COVID-19 vaccines were safe and well-tolerated. CONCLUSIONS: This study suggests COVID-19 vaccine response is significantly lower in cancer patients. Number of received doses, cancer types and treatment strategies could influence response of COVID-19 vaccine in cancer patients. COVID-19 vaccines are safe and well-tolerated. Considering the emergence of several new variants of SARS-CoV-2 with potential influence on ongoing vaccination programs, there is a need for booster doses to increase the effectiveness of COVID-19 vaccines. SYSTEMATIC REVIEW REGISTRATION: https://www.crd.york.ac.uk/prospero/display_record.php?ID=CRD42022327931, identifier CRD42022327931.",
+    "metadata": {
+      "topic_id": "08954a20-4dac-43b7-81fb-aa063f0e63fe",
+      "pubmed_id": "36457318",
+      "title": "COVID-19 vaccine response and safety in patients with cancer: An overview of systematic reviews.",
+      "authors": "Sun, Hong; Bu, Fengjiao; Li, Ling; Zhang, Xiuwen; Yan, Jingchao; Huang, Taomin",
+      "journal": "Frontiers in public health",
+      "publication_date": "2022",
+      "doi": "10.3389/fpubh.2022.1072137",
+      "mesh_terms": [
+        "Humans",
+        "COVID-19 Vaccines",
+        "Pandemics",
+        "COVID-19",
+        "SARS-CoV-2",
+        "Systematic Reviews as Topic",
+        "Neoplasms",
+        "Hematologic Neoplasms"
+      ],
+      "keywords": [
+        "COVID-19",
+        "cancer",
+        "response",
+        "safety",
+        "vaccine"
+      ],
+      "publication_types": [
+        "Systematic Review",
+        "Journal Article"
+      ],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/36457318/",
+      "chunk_type": "title_abstract"
+    }
+  },
+  {
+    "content": "Abstract Chunk 1: BACKGROUND: To date, the COVID-19 pandemic does not appear to be overcome with new variants continuously emerging. The vaccination against COVID-19 has been the trend, but there are multiple systematic reviews on COVID-19 vaccines in patients with cancer, resulting in redundant and sub-optimal systematic reviews",
+    "metadata": {
+      "topic_id": "08954a20-4dac-43b7-81fb-aa063f0e63fe",
+      "pubmed_id": "36457318",
+      "title": "COVID-19 vaccine response and safety in patients with cancer: An overview of systematic reviews.",
+      "authors": "Sun, Hong; Bu, Fengjiao; Li, Ling; Zhang, Xiuwen; Yan, Jingchao; Huang, Taomin",
+      "journal": "Frontiers in public health",
+      "publication_date": "2022",
+      "doi": "10.3389/fpubh.2022.1072137",
+      "mesh_terms": [
+        "Humans",
+        "COVID-19 Vaccines",
+        "Pandemics",
+        "COVID-19",
+        "SARS-CoV-2",
+        "Systematic Reviews as Topic",
+        "Neoplasms",
+        "Hematologic Neoplasms"
+      ],
+      "keywords": [
+        "COVID-19",
+        "cancer",
+        "response",
+        "safety",
+        "vaccine"
+      ],
+      "publication_types": [
+        "Systematic Review",
+        "Journal Article"
+      ],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/36457318/",
+      "chunk_type": "abstract_split",
+      "chunk_index": 0,
+      "chunk_id": "36457318_abs_0"
+    }
+  },
+  {
+    "content": "Abstract Chunk 2: . There are still some doubts about efficacy and safety of the COVID-19 vaccine in cancer patients. PURPOSE: To identify, summarize and synthesize the available evidence of systematic reviews on response and COVID-19 vaccine safety in patients with cancer. METHODS: Multiple databases were searched from their inception to May 1, 2022 to fetch the relevant articles",
+    "metadata": {
+      "topic_id": "08954a20-4dac-43b7-81fb-aa063f0e63fe",
+      "pubmed_id": "36457318",
+      "title": "COVID-19 vaccine response and safety in patients with cancer: An overview of systematic reviews.",
+      "authors": "Sun, Hong; Bu, Fengjiao; Li, Ling; Zhang, Xiuwen; Yan, Jingchao; Huang, Taomin",
+      "journal": "Frontiers in public health",
+      "publication_date": "2022",
+      "doi": "10.3389/fpubh.2022.1072137",
+      "mesh_terms": [
+        "Humans",
+        "COVID-19 Vaccines",
+        "Pandemics",
+        "COVID-19",
+        "SARS-CoV-2",
+        "Systematic Reviews as Topic",
+        "Neoplasms",
+        "Hematologic Neoplasms"
+      ],
+      "keywords": [
+        "COVID-19",
+        "cancer",
+        "response",
+        "safety",
+        "vaccine"
+      ],
+      "publication_types": [
+        "Systematic Review",
+        "Journal Article"
+      ],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/36457318/",
+      "chunk_type": "abstract_split",
+      "chunk_index": 1,
+      "chunk_id": "36457318_abs_1"
+    }
+  },
+  {
+    "content": "Abstract Chunk 3: . Study quality was assessed by AMSTAR2. The protocol of this study was registered on PROSPERO (CRD42022327931). RESULTS: A total of 18 articles were finally included. The seroconversion rates after first dose were ranged from 37.30-54.20% in all cancers, 49.60-62.00% in solid cancers and 33.30-56.00% in hematological malignancies. The seroconversion rates after second dose were ranged from 65",
+    "metadata": {
+      "topic_id": "08954a20-4dac-43b7-81fb-aa063f0e63fe",
+      "pubmed_id": "36457318",
+      "title": "COVID-19 vaccine response and safety in patients with cancer: An overview of systematic reviews.",
+      "authors": "Sun, Hong; Bu, Fengjiao; Li, Ling; Zhang, Xiuwen; Yan, Jingchao; Huang, Taomin",
+      "journal": "Frontiers in public health",
+      "publication_date": "2022",
+      "doi": "10.3389/fpubh.2022.1072137",
+      "mesh_terms": [
+        "Humans",
+        "COVID-19 Vaccines",
+        "Pandemics",
+        "COVID-19",
+        "SARS-CoV-2",
+        "Systematic Reviews as Topic",
+        "Neoplasms",
+        "Hematologic Neoplasms"
+      ],
+      "keywords": [
+        "COVID-19",
+        "cancer",
+        "response",
+        "safety",
+        "vaccine"
+      ],
+      "publication_types": [
+        "Systematic Review",
+        "Journal Article"
+      ],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/36457318/",
+      "chunk_type": "abstract_split",
+      "chunk_index": 2,
+      "chunk_id": "36457318_abs_2"
+    }
+  },
+  {
+    "content": "Abstract Chunk 4: .30-87.70% in all cancers, 91.60-96.00% in solid cancers and 58.00-72.60% in hematological malignancies. Cancer types and types of therapy could influence vaccine response. COVID-19 vaccines were safe and well-tolerated. CONCLUSIONS: This study suggests COVID-19 vaccine response is significantly lower in cancer patients",
+    "metadata": {
+      "topic_id": "08954a20-4dac-43b7-81fb-aa063f0e63fe",
+      "pubmed_id": "36457318",
+      "title": "COVID-19 vaccine response and safety in patients with cancer: An overview of systematic reviews.",
+      "authors": "Sun, Hong; Bu, Fengjiao; Li, Ling; Zhang, Xiuwen; Yan, Jingchao; Huang, Taomin",
+      "journal": "Frontiers in public health",
+      "publication_date": "2022",
+      "doi": "10.3389/fpubh.2022.1072137",
+      "mesh_terms": [
+        "Humans",
+        "COVID-19 Vaccines",
+        "Pandemics",
+        "COVID-19",
+        "SARS-CoV-2",
+        "Systematic Reviews as Topic",
+        "Neoplasms",
+        "Hematologic Neoplasms"
+      ],
+      "keywords": [
+        "COVID-19",
+        "cancer",
+        "response",
+        "safety",
+        "vaccine"
+      ],
+      "publication_types": [
+        "Systematic Review",
+        "Journal Article"
+      ],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/36457318/",
+      "chunk_type": "abstract_split",
+      "chunk_index": 3,
+      "chunk_id": "36457318_abs_3"
+    }
+  },
+  {
+    "content": "Abstract Chunk 5: . Number of received doses, cancer types and treatment strategies could influence response of COVID-19 vaccine in cancer patients. COVID-19 vaccines are safe and well-tolerated. Considering the emergence of several new variants of SARS-CoV-2 with potential influence on ongoing vaccination programs, there is a need for booster doses to increase the effectiveness of COVID-19 vaccines",
+    "metadata": {
+      "topic_id": "08954a20-4dac-43b7-81fb-aa063f0e63fe",
+      "pubmed_id": "36457318",
+      "title": "COVID-19 vaccine response and safety in patients with cancer: An overview of systematic reviews.",
+      "authors": "Sun, Hong; Bu, Fengjiao; Li, Ling; Zhang, Xiuwen; Yan, Jingchao; Huang, Taomin",
+      "journal": "Frontiers in public health",
+      "publication_date": "2022",
+      "doi": "10.3389/fpubh.2022.1072137",
+      "mesh_terms": [
+        "Humans",
+        "COVID-19 Vaccines",
+        "Pandemics",
+        "COVID-19",
+        "SARS-CoV-2",
+        "Systematic Reviews as Topic",
+        "Neoplasms",
+        "Hematologic Neoplasms"
+      ],
+      "keywords": [
+        "COVID-19",
+        "cancer",
+        "response",
+        "safety",
+        "vaccine"
+      ],
+      "publication_types": [
+        "Systematic Review",
+        "Journal Article"
+      ],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/36457318/",
+      "chunk_type": "abstract_split",
+      "chunk_index": 4,
+      "chunk_id": "36457318_abs_4"
+    }
+  },
+  {
+    "content": "Abstract Chunk 6: . SYSTEMATIC REVIEW REGISTRATION: https://www.crd.york.ac.uk/prospero/display_record.php?ID=CRD42022327931, identifier CRD42022327931.",
+    "metadata": {
+      "topic_id": "08954a20-4dac-43b7-81fb-aa063f0e63fe",
+      "pubmed_id": "36457318",
+      "title": "COVID-19 vaccine response and safety in patients with cancer: An overview of systematic reviews.",
+      "authors": "Sun, Hong; Bu, Fengjiao; Li, Ling; Zhang, Xiuwen; Yan, Jingchao; Huang, Taomin",
+      "journal": "Frontiers in public health",
+      "publication_date": "2022",
+      "doi": "10.3389/fpubh.2022.1072137",
+      "mesh_terms": [
+        "Humans",
+        "COVID-19 Vaccines",
+        "Pandemics",
+        "COVID-19",
+        "SARS-CoV-2",
+        "Systematic Reviews as Topic",
+        "Neoplasms",
+        "Hematologic Neoplasms"
+      ],
+      "keywords": [
+        "COVID-19",
+        "cancer",
+        "response",
+        "safety",
+        "vaccine"
+      ],
+      "publication_types": [
+        "Systematic Review",
+        "Journal Article"
+      ],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/36457318/",
+      "chunk_type": "abstract_split",
+      "chunk_index": 5,
+      "chunk_id": "36457318_abs_5"
+    }
+  },
+  {
+    "content": "[PMID: 37222988]\nTitle: Safety and Efficacy of COVID-19 Vaccine in Africa: Systematic Review.\nAuthors: Mengstu, Selamawit; Beyene Berha, Alemseged\n\nAbstract: BACKGROUND: Coronavirus disease 2019 (COVID-19) pandemic scared the whole world at the end of 2019, which is a communicable respiratory disease caused by severe acute respiratory syndrome coronavirus-2 (SARS-CoV-2). In South Africa and other African countries, the COVID-19 vaccines were subsequently approved for emergency use by the respective national regulatory authorities. There is a paucity of aggregated data that revealed the safety and efficacy of COVID-19 vaccines in Africa. OBJECTIVE: The aim of this systematic review was to synthesize the literature on the safety and efficacy of the COVID-19 vaccine which was given in Africa. METHODS: A systematic search was conducted on Science Direct, PubMed, EMBASE, Google Scholar, CINAHL, Cochrane Library, and direct Google searches. Only studies written in English and published articles from 2019 to October 30, 2022, which comprise nine randomized clinical trials (RCT), and four different studies including a single-arm implementation trials, prospective study, retrospective cohort study, and test-negative designs were included. RESULTS: A total of 13 studies were included which contain 810,466 participants from Africa. Of these, 62.18% of the participants were female. The efficacy of COVID-19 vaccine in Africa ranges from 41.7% to 100%. Moreover, vaccine efficacy against COVID-19 variants ranges from -5.7% to 100%. In general, systemic and local adverse events following vaccination in most trials were reported with a similar pattern between the placebo and vaccine groups. Out of the total reported adverse events, most of them were mild to moderate, whereas a few were serious. CONCLUSION: Almost all current COVID-19 vaccines appear to be safe for African study participants. Regarding efficacy, the protein subunit vaccine and mRNA vaccine exhibited high efficacy (100%) in this group of participants. However, Ad26. COV2.S and ChAdOx1 nCoV-19 COVID-19 vaccines are not effective against the delta variant and B.1.351 variant, respectively.",
+    "metadata": {
+      "topic_id": "08954a20-4dac-43b7-81fb-aa063f0e63fe",
+      "pubmed_id": "37222988",
+      "title": "Safety and Efficacy of COVID-19 Vaccine in Africa: Systematic Review.",
+      "authors": "Mengstu, Selamawit; Beyene Berha, Alemseged",
+      "journal": "Infection and drug resistance",
+      "publication_date": "2023",
+      "doi": "10.2147/IDR.S401074",
+      "mesh_terms": [],
+      "keywords": [
+        "Africa",
+        "COVID-19 vaccine",
+        "efficacy",
+        "immunogenicity",
+        "safety"
+      ],
+      "publication_types": [
+        "Journal Article",
+        "Review"
+      ],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/37222988/",
+      "chunk_type": "title_abstract"
+    }
+  },
+  {
+    "content": "Abstract Chunk 1: BACKGROUND: Coronavirus disease 2019 (COVID-19) pandemic scared the whole world at the end of 2019, which is a communicable respiratory disease caused by severe acute respiratory syndrome coronavirus-2 (SARS-CoV-2). In South Africa and other African countries, the COVID-19 vaccines were subsequently approved for emergency use by the respective national regulatory authorities",
+    "metadata": {
+      "topic_id": "08954a20-4dac-43b7-81fb-aa063f0e63fe",
+      "pubmed_id": "37222988",
+      "title": "Safety and Efficacy of COVID-19 Vaccine in Africa: Systematic Review.",
+      "authors": "Mengstu, Selamawit; Beyene Berha, Alemseged",
+      "journal": "Infection and drug resistance",
+      "publication_date": "2023",
+      "doi": "10.2147/IDR.S401074",
+      "mesh_terms": [],
+      "keywords": [
+        "Africa",
+        "COVID-19 vaccine",
+        "efficacy",
+        "immunogenicity",
+        "safety"
+      ],
+      "publication_types": [
+        "Journal Article",
+        "Review"
+      ],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/37222988/",
+      "chunk_type": "abstract_split",
+      "chunk_index": 0,
+      "chunk_id": "37222988_abs_0"
+    }
+  },
+  {
+    "content": "Abstract Chunk 2: . There is a paucity of aggregated data that revealed the safety and efficacy of COVID-19 vaccines in Africa. OBJECTIVE: The aim of this systematic review was to synthesize the literature on the safety and efficacy of the COVID-19 vaccine which was given in Africa",
+    "metadata": {
+      "topic_id": "08954a20-4dac-43b7-81fb-aa063f0e63fe",
+      "pubmed_id": "37222988",
+      "title": "Safety and Efficacy of COVID-19 Vaccine in Africa: Systematic Review.",
+      "authors": "Mengstu, Selamawit; Beyene Berha, Alemseged",
+      "journal": "Infection and drug resistance",
+      "publication_date": "2023",
+      "doi": "10.2147/IDR.S401074",
+      "mesh_terms": [],
+      "keywords": [
+        "Africa",
+        "COVID-19 vaccine",
+        "efficacy",
+        "immunogenicity",
+        "safety"
+      ],
+      "publication_types": [
+        "Journal Article",
+        "Review"
+      ],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/37222988/",
+      "chunk_type": "abstract_split",
+      "chunk_index": 1,
+      "chunk_id": "37222988_abs_1"
+    }
+  },
+  {
+    "content": "Abstract Chunk 3: . METHODS: A systematic search was conducted on Science Direct, PubMed, EMBASE, Google Scholar, CINAHL, Cochrane Library, and direct Google searches",
+    "metadata": {
+      "topic_id": "08954a20-4dac-43b7-81fb-aa063f0e63fe",
+      "pubmed_id": "37222988",
+      "title": "Safety and Efficacy of COVID-19 Vaccine in Africa: Systematic Review.",
+      "authors": "Mengstu, Selamawit; Beyene Berha, Alemseged",
+      "journal": "Infection and drug resistance",
+      "publication_date": "2023",
+      "doi": "10.2147/IDR.S401074",
+      "mesh_terms": [],
+      "keywords": [
+        "Africa",
+        "COVID-19 vaccine",
+        "efficacy",
+        "immunogenicity",
+        "safety"
+      ],
+      "publication_types": [
+        "Journal Article",
+        "Review"
+      ],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/37222988/",
+      "chunk_type": "abstract_split",
+      "chunk_index": 2,
+      "chunk_id": "37222988_abs_2"
+    }
+  },
+  {
+    "content": "Abstract Chunk 4: . Only studies written in English and published articles from 2019 to October 30, 2022, which comprise nine randomized clinical trials (RCT), and four different studies including a single-arm implementation trials, prospective study, retrospective cohort study, and test-negative designs were included. RESULTS: A total of 13 studies were included which contain 810,466 participants from Africa",
+    "metadata": {
+      "topic_id": "08954a20-4dac-43b7-81fb-aa063f0e63fe",
+      "pubmed_id": "37222988",
+      "title": "Safety and Efficacy of COVID-19 Vaccine in Africa: Systematic Review.",
+      "authors": "Mengstu, Selamawit; Beyene Berha, Alemseged",
+      "journal": "Infection and drug resistance",
+      "publication_date": "2023",
+      "doi": "10.2147/IDR.S401074",
+      "mesh_terms": [],
+      "keywords": [
+        "Africa",
+        "COVID-19 vaccine",
+        "efficacy",
+        "immunogenicity",
+        "safety"
+      ],
+      "publication_types": [
+        "Journal Article",
+        "Review"
+      ],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/37222988/",
+      "chunk_type": "abstract_split",
+      "chunk_index": 3,
+      "chunk_id": "37222988_abs_3"
+    }
+  },
+  {
+    "content": "Abstract Chunk 5: . Of these, 62.18% of the participants were female. The efficacy of COVID-19 vaccine in Africa ranges from 41.7% to 100%. Moreover, vaccine efficacy against COVID-19 variants ranges from -5.7% to 100%. In general, systemic and local adverse events following vaccination in most trials were reported with a similar pattern between the placebo and vaccine groups",
+    "metadata": {
+      "topic_id": "08954a20-4dac-43b7-81fb-aa063f0e63fe",
+      "pubmed_id": "37222988",
+      "title": "Safety and Efficacy of COVID-19 Vaccine in Africa: Systematic Review.",
+      "authors": "Mengstu, Selamawit; Beyene Berha, Alemseged",
+      "journal": "Infection and drug resistance",
+      "publication_date": "2023",
+      "doi": "10.2147/IDR.S401074",
+      "mesh_terms": [],
+      "keywords": [
+        "Africa",
+        "COVID-19 vaccine",
+        "efficacy",
+        "immunogenicity",
+        "safety"
+      ],
+      "publication_types": [
+        "Journal Article",
+        "Review"
+      ],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/37222988/",
+      "chunk_type": "abstract_split",
+      "chunk_index": 4,
+      "chunk_id": "37222988_abs_4"
+    }
+  },
+  {
+    "content": "Abstract Chunk 6: . Out of the total reported adverse events, most of them were mild to moderate, whereas a few were serious. CONCLUSION: Almost all current COVID-19 vaccines appear to be safe for African study participants. Regarding efficacy, the protein subunit vaccine and mRNA vaccine exhibited high efficacy (100%) in this group of participants. However, Ad26. COV2",
+    "metadata": {
+      "topic_id": "08954a20-4dac-43b7-81fb-aa063f0e63fe",
+      "pubmed_id": "37222988",
+      "title": "Safety and Efficacy of COVID-19 Vaccine in Africa: Systematic Review.",
+      "authors": "Mengstu, Selamawit; Beyene Berha, Alemseged",
+      "journal": "Infection and drug resistance",
+      "publication_date": "2023",
+      "doi": "10.2147/IDR.S401074",
+      "mesh_terms": [],
+      "keywords": [
+        "Africa",
+        "COVID-19 vaccine",
+        "efficacy",
+        "immunogenicity",
+        "safety"
+      ],
+      "publication_types": [
+        "Journal Article",
+        "Review"
+      ],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/37222988/",
+      "chunk_type": "abstract_split",
+      "chunk_index": 5,
+      "chunk_id": "37222988_abs_5"
+    }
+  },
+  {
+    "content": "Abstract Chunk 7: . However, Ad26. COV2.S and ChAdOx1 nCoV-19 COVID-19 vaccines are not effective against the delta variant and B.1.351 variant, respectively.",
+    "metadata": {
+      "topic_id": "08954a20-4dac-43b7-81fb-aa063f0e63fe",
+      "pubmed_id": "37222988",
+      "title": "Safety and Efficacy of COVID-19 Vaccine in Africa: Systematic Review.",
+      "authors": "Mengstu, Selamawit; Beyene Berha, Alemseged",
+      "journal": "Infection and drug resistance",
+      "publication_date": "2023",
+      "doi": "10.2147/IDR.S401074",
+      "mesh_terms": [],
+      "keywords": [
+        "Africa",
+        "COVID-19 vaccine",
+        "efficacy",
+        "immunogenicity",
+        "safety"
+      ],
+      "publication_types": [
+        "Journal Article",
+        "Review"
+      ],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/37222988/",
+      "chunk_type": "abstract_split",
+      "chunk_index": 6,
+      "chunk_id": "37222988_abs_6"
+    }
+  }
+]

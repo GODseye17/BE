@@ -9,6 +9,7 @@ from langchain.memory import ConversationBufferMemory
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain.retrievers import ContextualCompressionRetriever
 from langchain.retrievers.document_compressors import LLMChainExtractor
+from langchain.chains.question_answering import load_qa_chain
 
 from core.globals import get_globals
 from vectorstore.manager import get_vectorstore_retriever
@@ -89,23 +90,27 @@ def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
     
     logger.info(f"Selected prompt type: {detect_query_type(query)} for query: {query[:50]}...")
     
-    # Create the chain with dynamic prompt
-    qa_chain = ConversationalRetrievalChain.from_llm(
+    # Create a QA chain with the dynamic prompt
+    qa_chain = load_qa_chain(
         llm=llm,
+        chain_type="stuff",
+        prompt=dynamic_prompt,
+        verbose=False
+    )
+    
+    # Create the conversational chain
+    conversation_chain = ConversationalRetrievalChain(
         retriever=retriever,
         memory=memory,
+        combine_docs_chain=qa_chain,
         return_source_documents=True,
-        verbose=False,  # Set to False to reduce noise
+        verbose=False,
         output_key="answer",
-        combine_docs_chain_kwargs={
-            "prompt": dynamic_prompt,
-            "document_separator": "\n\n"  # Better document separation
-        },
         response_if_no_docs_found="I don't have specific information about that in the current research papers. Could you rephrase your question or ask about something else from the research?"
     )
     
     # Store the updated chain
-    conversation_chains[chain_key] = qa_chain
+    conversation_chains[chain_key] = conversation_chain
     
     # Clean up old chains if needed
     if len(conversation_chains) > MAX_CONVERSATIONS:
@@ -114,7 +119,7 @@ def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
             del conversation_chains[key]
         logger.info(f"🗑️ Cleaned up {len(oldest_keys)} old conversation chains")
 
-    return qa_chain
+    return conversation_chain
 
 def detect_query_type(query: str) -> str:
     """Detect query type for logging"""

@@ -141,32 +141,33 @@ async def answer_query(request: QueryRequest):
 
         conversation_id = request.conversation_id or str(uuid.uuid4())
 
-        # Try to set up the LangChain ConversationalRetrievalChain with better error handling
+        # Set up the chain with dynamic prompt selection
         try:
             chain = get_or_create_chain(request.topic_id, conversation_id, request.query)
             if not chain:
                 raise HTTPException(status_code=500, detail="Failed to create conversation chain")
         except HTTPException:
-            raise  # Re-raise HTTP exceptions
+            raise
         except Exception as e:
             logger.error(f"Error setting up conversation chain: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error setting up conversational chain: {str(e)}")
 
-        logger.info(f"Starting chain processing for query: {request.query}")
+        logger.info(f"Processing query: {request.query}")
 
         try:
+            # Invoke chain
             result = chain.invoke({"question": request.query})
-            answer = result.get("answer", "Sorry, I couldn't generate an answer to your question.")
+            raw_answer = result.get("answer", "Sorry, I couldn't generate an answer to your question.")
+            
+            # Post-process to remove any system artifacts
+            from utils.chains import post_process_response
+            answer = post_process_response(raw_answer, request.query)
+            
         except Exception as e:
             logger.error(f"Error during chain invocation: {str(e)}")
             import traceback
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=f"Error processing your question: {str(e)}")
-
-        # Add logging to verify the answer is being extracted correctly
-        logger.info(f"Question: {request.query}")
-        logger.info(f"Raw result keys: {result.keys()}")
-        logger.info(f"Answer length: {len(answer) if answer else 0}")
 
         # Validate comprehensive responses
         answer = validate_comprehensive_response(request.query, answer, request.topic_id)
@@ -180,7 +181,8 @@ async def answer_query(request: QueryRequest):
         import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail="An unexpected error occurred while processing your question")
-
+    
+    
 @router.get("/topic/{topic_id}/status")
 async def check_topic_status(topic_id: str):
     """Check the status of data fetching for a topic"""

@@ -56,7 +56,6 @@ def ping():
     globals_dict = get_globals()
     background_tasks_status = globals_dict['background_tasks_status']
     return {"status": "alive", "active_tasks": len(background_tasks_status)}
-
 @router.post("/fetch-topic-data", response_model=TopicResponse)
 async def fetch_topic_data(request: TopicRequest, background_tasks: BackgroundTasks):
     """Enhanced endpoint to fetch data from PubMed with multi-topic boolean search support"""
@@ -88,11 +87,11 @@ async def fetch_topic_data(request: TopicRequest, background_tasks: BackgroundTa
         topic_data = {
             "id": topic_id,
             "topic": request.topic,  # Keep for backward compatibility
-            "search_topics": request.topics,  # New field for multi-topic
+            "search_topics": ', '.join(request.topics) if request.topics else None,  # Convert list to string
             "boolean_operator": request.operator.value if request.operator else None,
             "advanced_query": request.advanced_query,
             "filters": request.filters.dict(exclude_none=True) if request.filters else None,
-            "created_at": datetime.utcnow().isoformat() + "Z",
+            # Remove created_at - it's auto-generated
             "status": "processing"
         }
         

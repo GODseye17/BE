@@ -9,6 +9,7 @@ from typing import List, Optional, Dict, Any
 from xml.etree import ElementTree as ET
 from langchain.docstore.document import Document
 import time
+import json
 
 from .filters import PubMedFilters
 from .query_preprocessor import QueryPreprocessor
@@ -113,16 +114,6 @@ async def fetch_pubmed_data(topics: Optional[List[str]] = None, operator: str = 
                 original_topic = topic
                 topic = query_preprocessor.transform_natural_to_pubmed(topic)
                 logger.info(f"🔄 Query transformed: '{original_topic}' -> '{topic}'")
-                
-                # Store transformation info in Supabase if available
-                if supabase and topic_id:
-                    try:
-                        supabase.table("topics").update({
-                            "original_query": original_topic,
-                            "transformed_query": topic
-                        }).eq("id", topic_id).execute()
-                    except Exception as e:
-                        logger.warning(f"Failed to store query transformation: {e}")
         
         # Build complete search query with multi-topic support
         search_query = filter_builder.build_complete_query(
@@ -170,6 +161,21 @@ async def fetch_pubmed_data(topics: Optional[List[str]] = None, operator: str = 
             search_description = f"topics {topics} with operator '{operator}'" if topics else f"topic '{topic}'"
             logger.warning(f"⚠️ No articles found for {search_description} with applied filters")
             logger.info(f"📊 Total available articles: {total_count}")
+            
+            # Update status even when no articles found
+            if supabase:
+                try:
+                    supabase.table("topics").update({
+                        "status": "completed",
+                        "total_articles_found": 0,
+                        "article_count": 0,
+                        "search_topics": ', '.join(topics) if topics else None,
+                        "boolean_operator": operator,
+                        "filters": filters
+                    }).eq("id", topic_id).execute()
+                except Exception as e:
+                    logger.error(f"Error updating topic status: {e}")
+            
             return False
 
         logger.info(f"✅ Found {len(article_ids)} articles (total available: {total_count})")
@@ -244,6 +250,21 @@ async def fetch_pubmed_data(topics: Optional[List[str]] = None, operator: str = 
         if not docs:
             search_description = f"topics {topics}" if topics else f"topic '{topic}'"
             logger.warning(f"⚠️ No valid articles to process for {search_description}")
+            
+            # Update status even when no valid articles
+            if supabase:
+                try:
+                    supabase.table("topics").update({
+                        "status": "completed",
+                        "total_articles_found": int(total_count),
+                        "article_count": 0,
+                        "search_topics": ', '.join(topics) if topics else None,
+                        "boolean_operator": operator,
+                        "filters": filters
+                    }).eq("id", topic_id).execute()
+                except Exception as e:
+                    logger.error(f"Error updating topic status: {e}")
+            
             return False
 
         # Step 4: Create vector store (with optimized batching)
@@ -268,20 +289,56 @@ async def fetch_pubmed_data(topics: Optional[List[str]] = None, operator: str = 
         # Step 5: Store metadata to Supabase
         try:
             if supabase:
-                supabase.table("topics").update({
+                # Debug logging
+                logger.info(f"📊 About to store articles to Supabase. Article count: {len(articles_data)}")
+                if articles_data:
+                    logger.info(f"📊 Sample article data: {json.dumps(articles_data[0], indent=2)}")
+                
+                # Update topic with proper data types
+                topic_update_data = {
                     "status": "completed",
-                    "total_articles_found": total_count,
+                    "total_articles_found": int(total_count),
                     "article_count": len(articles_data),
-                    "search_topics": topics,
+                    "search_topics": ', '.join(topics) if topics else None,  # Convert list to string
                     "boolean_operator": operator,
-                    "filters": filters,
-                    "embeddings_created": create_embeddings
-                }).eq("id", topic_id).execute()
+                    "filters": filters
+                    # Remove embeddings_created - not in schema
+                }
+                
+                logger.info(f"📊 Topic update data: {json.dumps(topic_update_data, indent=2)}")
+                
+                topic_update = supabase.table("topics").update(topic_update_data).eq("id", topic_id).execute()
+                logger.info(f"✅ Topic update response: {topic_update}")
 
-                supabase.table("articles").insert(articles_data).execute()
-                logger.info(f"✅ Stored {len(articles_data)} articles metadata to Supabase.")
+                # Insert articles
+                if articles_data:
+                    try:
+                        articles_insert = supabase.table("articles").insert(articles_data).execute()
+                        logger.info(f"✅ Articles insert response: {articles_insert}")
+                        logger.info(f"✅ Stored {len(articles_data)} articles metadata to Supabase.")
+                    except Exception as e:
+                        logger.error(f"❌ Failed to insert articles: {str(e)}")
+                        import traceback
+                        logger.error(traceback.format_exc())
+                        # Still mark as completed even if articles fail
+                        # The vector store is created, so RAG will work
+                else:
+                    logger.warning("⚠️ No articles to insert into Supabase")
+                    
         except Exception as e:
-            logger.warning(f"⚠️ Supabase error: {e}")
+            logger.error(f"❌ Supabase storage error: {str(e)}")
+            logger.error(f"❌ Error type: {type(e).__name__}")
+            import traceback
+            logger.error(traceback.format_exc())
+            
+            # Update status to error so it doesn't stay "processing"
+            if supabase:
+                try:
+                    supabase.table("topics").update({
+                        "status": f"error: {str(e)[:100]}"
+                    }).eq("id", topic_id).execute()
+                except:
+                    pass
         
         total_time = time.time() - start_time
         logger.info(f"⏱️ Total processing time: {total_time:.2f}s")
@@ -290,10 +347,13 @@ async def fetch_pubmed_data(topics: Optional[List[str]] = None, operator: str = 
 
     except Exception as e:
         logger.error(f"❌ Error fetching PubMed data: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
         try:
             if supabase:
                 supabase.table("topics").update({
-                    "status": f"error: {str(e)}", 
+                    "status": f"error: {str(e)[:100]}", 
                     "article_count": 0
                 }).eq("id", topic_id).execute()
         except:

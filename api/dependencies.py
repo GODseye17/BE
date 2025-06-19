@@ -59,10 +59,14 @@ async def fetch_data_background(request: TopicRequest, topic_id: str):
         except Exception as e:
             background_tasks_status[topic_id] = f"error: {str(e)}"
             logger.error(f"Error in fetch operation for topic_id {topic_id}: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())  # Add full traceback
             
             # Update status in Supabase
             if supabase:
-                supabase.table("topics").update({"status": f"error: {str(e)}"}).eq("id", topic_id).execute()
+                supabase.table("topics").update({
+                    "status": f"error: {str(e)[:200]}"  # Truncate error message
+                }).eq("id", topic_id).execute()
     finally:
         # Keep status for a while but eventually clean up
         await asyncio.sleep(3600)  # Keep status for 1 hour

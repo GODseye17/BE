@@ -1,5 +1,5 @@
 """
-Conversation chain management utilities with dynamic prompts
+Conversation chain management utilities with unified prompt
 """
 import logging
 import re
@@ -14,7 +14,7 @@ from langchain.chains.conversational_retrieval.prompts import CONDENSE_QUESTION_
 
 from core.globals import get_globals
 from vectorstore.manager import get_vectorstore_retriever
-from utils.prompts import get_dynamic_prompt
+from utils.prompts import unified_prompt_template
 from config.settings import MAX_CONVERSATIONS
 
 logger = logging.getLogger(__name__)
@@ -60,17 +60,15 @@ def create_contextual_compression_retriever(base_retriever, llm, query: str):
     )
 
 def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
-    """Get or create a conversation chain with dynamic prompt selection"""
+    """Get or create a conversation chain with unified prompt"""
     globals_dict = get_globals()
     conversation_chains = globals_dict['conversation_chains']
     llm = globals_dict['llm']
     
     chain_key = f"{topic_id}:{conversation_id}"
    
-    # For existing conversations, we need to update the prompt based on new query
-    existing_chain = conversation_chains.get(chain_key)
-    
     # Create memory (reuse if exists)
+    existing_chain = conversation_chains.get(chain_key)
     if existing_chain and hasattr(existing_chain, 'memory'):
         memory = existing_chain.memory
     else:
@@ -80,28 +78,21 @@ def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
             output_key="answer"
         )
     
-    # Get retriever
+    # Get retriever with compression
     base_retriever = get_vectorstore_retriever(topic_id, query)
-    
-    # Add contextual compression for better relevance
     retriever = create_contextual_compression_retriever(base_retriever, llm, query)
     
-    # Get dynamic prompt based on the query
-    dynamic_prompt = get_dynamic_prompt(query)
-    
-    logger.info(f"Selected prompt type: {detect_query_type(query)} for query: {query[:50]}...")
-    
-    # Create a custom QA chain with our dynamic prompt
+    # Use unified prompt - no detection needed
     doc_chain = load_qa_chain(
         llm=llm,
         chain_type="stuff",
-        prompt=dynamic_prompt
+        prompt=unified_prompt_template
     )
     
     # Create question generator chain (required for ConversationalRetrievalChain)
     question_generator = LLMChain(llm=llm, prompt=CONDENSE_QUESTION_PROMPT)
     
-    # Create the conversational chain with all required components
+    # Create the conversational chain
     qa_chain = ConversationalRetrievalChain(
         retriever=retriever,
         memory=memory,
@@ -125,29 +116,13 @@ def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
 
     return qa_chain
 
-def detect_query_type(query: str) -> str:
-    """Detect query type for logging"""
-    q_lower = query.lower()
-    
-    if any(p in q_lower for p in ['what is', 'define', 'who invented']):
-        return 'quick_fact'
-    elif any(p in q_lower for p in ['how does', 'mechanism', 'pathway']):
-        return 'mechanism'
-    elif any(p in q_lower for p in ['methodology', 'study design']):
-        return 'methodology'
-    elif any(p in q_lower for p in ['treatment', 'clinical', 'therapy']):
-        return 'clinical'
-    elif any(p in q_lower for p in ['evidence', 'studies show', 'research']):
-        return 'synthesis'
-    return 'general'
-
 def post_process_response(response: str, query: str) -> str:
     """Post-process the response to ensure quality"""
     # Remove any system prompt leakage
     system_terms = [
         "Available research papers:", "User's question:", "CRITICAL INSTRUCTIONS:",
         "Research papers:", "Papers:", "Query:", "Question:",
-        "{context}", "{question}"
+        "{context}", "{question}", "RESPONSE GUIDELINES:", "Remember:"
     ]
     
     for term in system_terms:

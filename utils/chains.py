@@ -4,12 +4,13 @@ Conversation chain management utilities with dynamic prompts
 import logging
 import re
 from typing import Optional
-from langchain.chains import ConversationalRetrievalChain
+from langchain.chains import ConversationalRetrievalChain, LLMChain
 from langchain.memory import ConversationBufferMemory
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain.retrievers import ContextualCompressionRetriever
 from langchain.retrievers.document_compressors import LLMChainExtractor
 from langchain.chains.question_answering import load_qa_chain
+from langchain.chains.conversational_retrieval.prompts import CONDENSE_QUESTION_PROMPT
 
 from core.globals import get_globals
 from vectorstore.manager import get_vectorstore_retriever
@@ -90,19 +91,22 @@ def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
     
     logger.info(f"Selected prompt type: {detect_query_type(query)} for query: {query[:50]}...")
     
-    # Create a QA chain with the dynamic prompt
-    qa_chain = load_qa_chain(
+    # Create a custom QA chain with our dynamic prompt
+    doc_chain = load_qa_chain(
         llm=llm,
         chain_type="stuff",
-        prompt=dynamic_prompt,
-        verbose=False
+        prompt=dynamic_prompt
     )
     
-    # Create the conversational chain
-    conversation_chain = ConversationalRetrievalChain(
+    # Create question generator chain (required for ConversationalRetrievalChain)
+    question_generator = LLMChain(llm=llm, prompt=CONDENSE_QUESTION_PROMPT)
+    
+    # Create the conversational chain with all required components
+    qa_chain = ConversationalRetrievalChain(
         retriever=retriever,
         memory=memory,
-        combine_docs_chain=qa_chain,
+        combine_docs_chain=doc_chain,
+        question_generator=question_generator,
         return_source_documents=True,
         verbose=False,
         output_key="answer",
@@ -110,7 +114,7 @@ def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
     )
     
     # Store the updated chain
-    conversation_chains[chain_key] = conversation_chain
+    conversation_chains[chain_key] = qa_chain
     
     # Clean up old chains if needed
     if len(conversation_chains) > MAX_CONVERSATIONS:
@@ -119,7 +123,7 @@ def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
             del conversation_chains[key]
         logger.info(f"🗑️ Cleaned up {len(oldest_keys)} old conversation chains")
 
-    return conversation_chain
+    return qa_chain
 
 def detect_query_type(query: str) -> str:
     """Detect query type for logging"""

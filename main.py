@@ -102,7 +102,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://www.vivum.app", "http://localhost:8081", "http://localhost:3000", 'https://frontend-vivum.vercel.app' , 'https://www.pubmed.app', 'https://www.pubmed.app/'],
+    allow_origins=["https://www.vivum.app", "http://localhost:8081", "http://localhost:3000", 'https://frontend-vivum.vercel.app' , 'https://www.pubmed.app', 'https://www.pubmed.app/', 'https://www.drvivum.com'],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

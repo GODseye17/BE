@@ -2,8 +2,11 @@
 Enhanced PubMed Filters Class
 """
 import re
+import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 class PubMedFilters:
     """Enhanced PubMed search filters with multi-topic boolean operator support"""
@@ -160,6 +163,11 @@ class PubMedFilters:
         if operator not in self.boolean_operators:
             raise ValueError(f"Invalid operator '{operator}'. Must be one of: {list(self.boolean_operators.keys())}")
         
+        # Force AND operator when there are more than 2 topics for better relevance
+        if len(clean_topics) > 2:
+            operator = 'AND'
+            logger.info(f"Forcing AND operator for {len(clean_topics)} topics to improve relevance")
+        
         # Handle special case for NOT operator
         if operator == 'NOT':
             if len(clean_topics) < 2:
@@ -170,13 +178,30 @@ class PubMedFilters:
             excluded_query = " AND ".join([f"NOT ({topic})" for topic in excluded_topics])
             return f"({base_topic}) AND ({excluded_query})"
         
-        # For single topic, no operator needed
+        # For single topic, add title boosting and field restrictions
         if len(clean_topics) == 1:
-            return f"({clean_topics[0]})"
+            topic = clean_topics[0]
+            # Add automatic phrase searching for multi-word topics
+            if ' ' in topic and not topic.startswith('"'):
+                topic = f'"{topic}"'
+            # Add title boosting and field restrictions
+            title_boost = f'({topic}[Title]) OR ({topic}[Title/Abstract])'
+            return f"({title_boost})"
         
-        # Join multiple topics with selected operator
+        # Join multiple topics with selected operator and add field restrictions
         boolean_op = self.boolean_operators[operator]
-        joined_query = f" {boolean_op} ".join([f"({topic})" for topic in clean_topics])
+        
+        # Process each topic with automatic phrase searching and field restrictions
+        processed_topics = []
+        for topic in clean_topics:
+            # Add automatic phrase searching for multi-word topics
+            if ' ' in topic and not topic.startswith('"'):
+                topic = f'"{topic}"'
+            # Add title boosting for each topic
+            title_boost = f'({topic}[Title]) OR ({topic}[Title/Abstract])'
+            processed_topics.append(f"({title_boost})")
+        
+        joined_query = f" {boolean_op} ".join(processed_topics)
         
         return f"({joined_query})"
 

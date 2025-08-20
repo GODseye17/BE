@@ -440,3 +440,331 @@ def health_check():
     globals_dict = get_globals()
     supabase = globals_dict['supabase']
     return {"status": "healthy", "database": "connected" if supabase else "disconnected"}
+
+# Feedback endpoints
+@router.post("/feedback/article-relevance")
+async def record_article_feedback(request: dict):
+    """Record user feedback for article relevance"""
+    try:
+        query = request.get("query")
+        pmid = request.get("pmid")
+        is_relevant = request.get("is_relevant")
+        user_score = request.get("user_score")
+        
+        if not all([query, pmid, is_relevant is not None]):
+            raise HTTPException(status_code=400, detail="query, pmid, and is_relevant are required")
+        
+        # Initialize feedback tracker
+        from feedback.relevance_tracker import RelevanceTracker
+        tracker = RelevanceTracker()
+        
+        # Record the feedback
+        tracker.record_article_feedback(query, pmid, is_relevant, user_score)
+        
+        return {
+            "status": "success",
+            "message": f"Feedback recorded for PMID {pmid}",
+            "feedback": {
+                "query": query,
+                "pmid": pmid,
+                "is_relevant": is_relevant,
+                "user_score": user_score
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error recording article feedback: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/feedback/query-satisfaction")
+async def record_query_satisfaction(request: dict):
+    """Record overall query satisfaction score"""
+    try:
+        query = request.get("query")
+        satisfaction_score = request.get("satisfaction_score")
+        feedback_text = request.get("feedback_text")
+        
+        if not all([query, satisfaction_score is not None]):
+            raise HTTPException(status_code=400, detail="query and satisfaction_score are required")
+        
+        if not (0.0 <= satisfaction_score <= 5.0):
+            raise HTTPException(status_code=400, detail="satisfaction_score must be between 0.0 and 5.0")
+        
+        # Initialize feedback tracker
+        from feedback.relevance_tracker import RelevanceTracker
+        tracker = RelevanceTracker()
+        
+        # Record the satisfaction
+        tracker.record_query_satisfaction(query, satisfaction_score, feedback_text)
+        
+        return {
+            "status": "success",
+            "message": f"Satisfaction score {satisfaction_score}/5.0 recorded",
+            "feedback": {
+                "query": query,
+                "satisfaction_score": satisfaction_score,
+                "feedback_text": feedback_text
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error recording query satisfaction: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/feedback/summary")
+async def get_feedback_summary():
+    """Get summary of feedback data"""
+    try:
+        from feedback.relevance_tracker import RelevanceTracker
+        tracker = RelevanceTracker()
+        
+        summary = tracker.get_feedback_summary()
+        
+        return {
+            "status": "success",
+            "summary": summary
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting feedback summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/feedback/reset-thresholds")
+async def reset_feedback_thresholds():
+    """Reset relevance thresholds to default values"""
+    try:
+        from feedback.relevance_tracker import RelevanceTracker
+        tracker = RelevanceTracker()
+        
+        tracker.reset_thresholds()
+        
+        return {
+            "status": "success",
+            "message": "Relevance thresholds reset to default values",
+            "new_thresholds": tracker.current_thresholds
+        }
+        
+    except Exception as e:
+        logger.error(f"Error resetting thresholds: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Enhanced Analysis endpoints
+@router.post("/enhanced-query")
+async def enhanced_query(request: dict):
+    """Enhanced query using knowledge graph and multi-agent system"""
+    try:
+        topic_id = request.get("topic_id")
+        query = request.get("query")
+        conversation_id = request.get("conversation_id")
+        
+        if not all([topic_id, query]):
+            raise HTTPException(status_code=400, detail="topic_id and query are required")
+        
+        # Check topic status
+        status = check_topic_fetch_status(topic_id)
+        if status != "completed":
+            raise HTTPException(status_code=422, detail="Topic data not ready. Please fetch topic data first.")
+        
+        # Use enhanced chain
+        from utils.enhanced_chains import get_or_create_enhanced_chain
+        chain = get_or_create_enhanced_chain(topic_id, conversation_id or str(uuid.uuid4()), query)
+        
+        if not chain:
+            raise HTTPException(status_code=500, detail="Failed to create enhanced chain")
+        
+        # Process query
+        result = await chain.ainvoke({"question": query})
+        
+        return {
+            "status": "success",
+            "answer": result.get("answer", ""),
+            "source_documents": len(result.get("source_documents", [])),
+            "multi_agent_analysis": result.get("multi_agent_analysis", {}),
+            "processing_time": result.get("multi_agent_analysis", {}).get("processing_time", 0)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in enhanced query: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/build-knowledge-graph/{topic_id}")
+async def build_knowledge_graph(topic_id: str):
+    """Build knowledge graph for a topic"""
+    try:
+        # Get articles from Supabase
+        globals_dict = get_globals()
+        supabase = globals_dict['supabase']
+        
+        if not supabase:
+            raise HTTPException(status_code=503, detail="Database connection not available")
+        
+        # Fetch articles for the topic
+        response = supabase.table('articles').select('*').eq('topic_id', topic_id).execute()
+        articles = response.data if response.data else []
+        
+        if not articles:
+            raise HTTPException(status_code=404, detail="No articles found for topic")
+        
+        # Build knowledge graph
+        from utils.enhanced_chains import build_knowledge_graph_for_topic
+        graph = build_knowledge_graph_for_topic(topic_id, articles)
+        
+        return {
+            "status": "success",
+            "message": f"Knowledge graph built for topic {topic_id}",
+            "graph_stats": {
+                "nodes": len(graph.nodes),
+                "edges": len(graph.edges),
+                "articles_processed": len(articles)
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error building knowledge graph: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/knowledge-graph-stats/{topic_id}")
+async def get_knowledge_graph_stats(topic_id: str):
+    """Get knowledge graph statistics for a topic"""
+    try:
+        from utils.enhanced_chains import get_knowledge_graph_statistics
+        stats = get_knowledge_graph_statistics(topic_id)
+        
+        return {
+            "status": "success",
+            "topic_id": topic_id,
+            "statistics": stats
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting knowledge graph stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/multi-agent-status/{topic_id}")
+async def get_multi_agent_status(topic_id: str):
+    """Get multi-agent system status for a topic"""
+    try:
+        from utils.enhanced_chains import get_multi_agent_status
+        status = get_multi_agent_status(topic_id)
+        
+        return {
+            "status": "success",
+            "topic_id": topic_id,
+            "agent_status": status
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting multi-agent status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/enable-critic-agent")
+async def enable_critic_agent(request: dict):
+    """Enable critic agent with OpenAI API key"""
+    try:
+        openai_api_key = request.get("openai_api_key")
+        topic_id = request.get("topic_id")
+        
+        if not openai_api_key:
+            raise HTTPException(status_code=400, detail="openai_api_key is required")
+        
+        if not topic_id:
+            raise HTTPException(status_code=400, detail="topic_id is required")
+        
+        # Enable critic agent
+        from utils.enhanced_chains import _multi_agent_coordinators
+        if topic_id in _multi_agent_coordinators:
+            _multi_agent_coordinators[topic_id].enable_critic_agent(openai_api_key)
+        
+        return {
+            "status": "success",
+            "message": "Critic agent enabled successfully",
+            "topic_id": topic_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Error enabling critic agent: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/enhanced-query")
+async def enhanced_query(request: dict):
+    """Enhanced query using knowledge graph and multi-agent system"""
+    try:
+        topic_id = request.get("topic_id")
+        query = request.get("query")
+        conversation_id = request.get("conversation_id")
+        
+        # Input validation
+        if not topic_id or not query:
+            raise HTTPException(status_code=400, detail="topic_id and query are required")
+        
+        # Check topic status
+        status = check_topic_fetch_status(topic_id)
+        if status != "completed":
+            raise HTTPException(status_code=422, detail="Topic data not ready. Please fetch topic data first.")
+        
+        # Use enhanced chain
+        from utils.enhanced_chains import get_or_create_enhanced_chain
+        chain = get_or_create_enhanced_chain(topic_id, conversation_id or str(uuid.uuid4()), query)
+        
+        if not chain:
+            raise HTTPException(status_code=500, detail="Failed to create enhanced chain")
+        
+        # Process query with timeout
+        try:
+            import asyncio
+            result = await asyncio.wait_for(
+                chain.ainvoke({"question": query}),
+                timeout=30.0  # 30 second timeout
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=408, detail="Request timeout - please try a more specific question")
+        
+        return {
+            "status": "success",
+            "answer": result.get("answer", ""),
+            "source_documents": len(result.get("source_documents", [])),
+            "multi_agent_analysis": result.get("multi_agent_analysis", {}),
+            "processing_time": result.get("multi_agent_analysis", {}).get("processing_time", 0)
+        }
+        
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
+    except Exception as e:
+        logger.error(f"Error in enhanced query: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/performance-metrics")
+async def get_performance_metrics():
+    """Get performance metrics"""
+    try:
+        from utils.enhanced_chains import get_performance_metrics
+        metrics = get_performance_metrics()
+        
+        return {
+            "status": "success",
+            "metrics": metrics
+        }
+    except Exception as e:
+        logger.error(f"Error getting performance metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/system-health")
+async def get_system_health():
+    """Get system health status"""
+    try:
+        from utils.monitoring import PerformanceMonitor
+        monitor = PerformanceMonitor()
+        system_metrics = monitor.get_system_metrics()
+        
+        return {
+            "status": "success",
+            "system_health": {
+                "cpu_usage": system_metrics.get("cpu_percent", 0),
+                "memory_usage": system_metrics.get("memory_percent", 0),
+                "memory_available": system_metrics.get("memory_available", 0),
+                "disk_usage": system_metrics.get("disk_usage", 0)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting system health: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

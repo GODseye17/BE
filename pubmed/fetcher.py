@@ -221,31 +221,74 @@ async def fetch_pubmed_data(topics: Optional[List[str]] = None, operator: str = 
                     logger.warning(f"⚠️ Skipping low-quality article: {article_data.get('pmid', 'unknown')}")
                     continue
 
-                # Create content chunks for embedding
-                content_chunks = create_content_chunks(article_data, topic_id)
-                
-                # Add chunks as documents
-                for chunk in content_chunks:
-                    docs.append(Document(
-                        page_content=chunk['content'],
-                        metadata=chunk['metadata']
-                    ))
-
-                articles_data.append({
-                    "topic_id": topic_id,
-                    "pubmed_id": article_data['pmid'],
-                    "title": article_data['title'],
-                    "abstract": article_data['abstract'],
-                    "authors": article_data['authors'],
-                    "url": f"https://pubmed.ncbi.nlm.nih.gov/{article_data['pmid']}/"
-                })
+                articles_data.append(article_data)
 
             except Exception as parse_err:
                 logger.warning(f"⚠️ Skipping malformed article: {parse_err}")
 
         parse_time = time.time() - parse_start
         logger.info(f"⏱️ Article parsing completed in {parse_time:.2f}s")
-        logger.info(f"📄 Processed {len(docs)} content chunks from {len(articles_data)} articles.")
+        logger.info(f"📄 Extracted {len(articles_data)} articles.")
+
+        # Step 3.5: Apply relevance scoring and filtering
+        if articles_data:
+            try:
+                from pubmed.relevance_scorer import ArticleRelevanceScorer
+                
+                # Initialize relevance scorer
+                scorer = ArticleRelevanceScorer()
+                
+                # Create query info for relevance scoring
+                original_query = topics[0] if topics else topic if topic else advanced_query
+                query_info = {
+                    'original_query': original_query,
+                    'key_terms': topics if topics else [topic] if topic else []
+                }
+                
+                # Filter articles by relevance
+                relevant_articles = scorer.filter_articles_by_relevance(
+                    articles_data, query_info, min_score=0.4
+                )
+                
+                logger.info(f"🔍 Relevance filtering: {len(articles_data)} -> {len(relevant_articles)} articles")
+                
+                # Create content chunks for relevant articles only
+                for article_data in relevant_articles:
+                    content_chunks = create_content_chunks(article_data, topic_id)
+                    
+                    # Add chunks as documents
+                    for chunk in content_chunks:
+                        docs.append(Document(
+                            page_content=chunk['content'],
+                            metadata=chunk['metadata']
+                        ))
+                
+                # Update articles_data to only include relevant articles
+                articles_data = [
+                    {
+                        "topic_id": topic_id,
+                        "pubmed_id": article['pmid'],
+                        "title": article['title'],
+                        "abstract": article['abstract'],
+                        "authors": article['authors'],
+                        "url": f"https://pubmed.ncbi.nlm.nih.gov/{article['pmid']}/",
+                        "relevance_score": article.get('relevance_score', 0.0)
+                    }
+                    for article in relevant_articles
+                ]
+                
+            except Exception as e:
+                logger.warning(f"⚠️ Relevance scoring failed: {e}, proceeding with all articles")
+                # Fallback: create chunks for all articles
+                for article_data in articles_data:
+                    content_chunks = create_content_chunks(article_data, topic_id)
+                    for chunk in content_chunks:
+                        docs.append(Document(
+                            page_content=chunk['content'],
+                            metadata=chunk['metadata']
+                        ))
+
+        logger.info(f"📄 Processed {len(docs)} content chunks from {len(articles_data)} relevant articles.")
 
         if not docs:
             search_description = f"topics {topics}" if topics else f"topic '{topic}'"

@@ -22,3 +22,11 @@ elasticsearch
 sentence-transformers
 requests
 psutil
+scikit-learn
+networkx
+spacy
+openai
+redis>=4.0.0
+structlog>=23.0.0
+prometheus-client>=0.17.0
+asyncio-throttle>=1.0.0

@@ -5,6 +5,7 @@ from langchain.docstore.document import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from pathlib import Path
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +161,7 @@ def extract_keywords(article):
     return keywords
 
 def validate_article_data(article_data):
-    """Validate article quality before processing"""
+    """Validate article quality before processing with enhanced filtering"""
     # Must have PMID
     if not article_data.get('pmid') or article_data['pmid'] == 'unknown':
         return False
@@ -170,10 +171,42 @@ def validate_article_data(article_data):
     if not title or title == 'No Title' or len(title.strip()) < 10:
         return False
     
-    # Must have abstract or be a substantial title
+    # Must have abstract with minimum length (increased from 50 to 150)
     abstract = article_data.get('abstract', '')
-    if (not abstract or abstract == 'No Abstract' or len(abstract.strip()) < 50) and len(title) < 50:
+    if not abstract or abstract == 'No Abstract' or len(abstract.strip()) < 150:
         return False
+    
+    # Filter out retracted articles
+    pub_types = article_data.get('publication_types', [])
+    retracted_types = ['Retracted Publication', 'Expression of Concern', 'Retraction of Publication']
+    if any(retracted_type in pub_types for retracted_type in retracted_types):
+        logger.info(f"Skipping retracted article: {article_data.get('pmid', 'unknown')}")
+        return False
+    
+    # Filter out low-quality publication types
+    low_quality_types = ['Editorial', 'Letter', 'Comment', 'News', 'Biography', 'Congress']
+    if any(low_quality_type in pub_types for low_quality_type in low_quality_types):
+        logger.info(f"Skipping low-quality article type: {article_data.get('pmid', 'unknown')} - {pub_types}")
+        return False
+    
+    # Filter out articles older than 20 years unless query contains historical terms
+    # This will be checked in the fetcher with query context
+    publication_date = article_data.get('publication_date', '')
+    if publication_date and publication_date != 'Unknown Date':
+        try:
+            # Extract year from date
+            year_str = publication_date.split('-')[0]
+            if year_str.isdigit():
+                year = int(year_str)
+                current_year = datetime.now().year
+                if current_year - year > 20:
+                    logger.info(f"Skipping old article ({year}): {article_data.get('pmid', 'unknown')}")
+                    return False
+        except (ValueError, IndexError):
+            pass
+    
+    # Filter for English articles only (this will be enforced in the query)
+    # The language filtering is handled at the query level in PubMed
     
     return True
 
@@ -194,7 +227,8 @@ def create_content_chunks(article_data, topic_id):
         "keywords": article_data.get('keywords', []),
         "publication_types": article_data.get('publication_types', []),
         "url": f"https://pubmed.ncbi.nlm.nih.gov/{article_data.get('pmid', 'unknown')}/",
-        "chunk_type": "title_abstract"
+        "chunk_type": "title_abstract",
+        "relevance_score": article_data.get('relevance_score', 0.0)  # Add relevance score
     }
 
     # Safe content creation

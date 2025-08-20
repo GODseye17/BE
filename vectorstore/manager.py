@@ -135,7 +135,7 @@ def get_vectorstore_retriever(topic_id: str, query: str):
             allow_dangerous_deserialization=True
         )
         
-        # Determine k based on query type
+        # Determine k and search type based on query type
         query_lower = query.lower()
         
         # Check if query asks for comprehensive information
@@ -145,8 +145,16 @@ def get_vectorstore_retriever(topic_id: str, query: str):
             "summary of all", "analyze all", "fetched"
         ]
         
-        is_comprehensive = any(keyword in query_lower for keyword in comprehensive_keywords)
+        # Check if query is for comparison
+        comparison_keywords = [
+            "compare", "comparison", "versus", "vs", "difference between",
+            "similarities", "differences", "contrast"
+        ]
         
+        is_comprehensive = any(keyword in query_lower for keyword in comprehensive_keywords)
+        is_comparison = any(keyword in query_lower for keyword in comparison_keywords)
+        
+        # Set k based on query type
         if is_comprehensive:
             # For comprehensive queries, get more chunks
             # Get article count from Supabase
@@ -162,18 +170,21 @@ def get_vectorstore_retriever(topic_id: str, query: str):
             # Use 3 chunks per article for comprehensive queries
             k = min(article_count * 3, 100)
             logger.info(f"📊 Comprehensive query detected - using k={k} for {article_count} articles")
+        elif is_comparison:
+            # For comparison queries, use moderate k
+            k = 20
+            logger.info(f"🔄 Comparison query detected - using k={k}")
         else:
-            # For focused queries, use fewer chunks
-            k = 30
+            # For focused queries, use smaller k for better precision
+            k = 10
             logger.info(f"🎯 Focused query - using k={k}")
         
-        # Create retriever with MMR for diversity
+        # Use similarity search with threshold for better precision instead of MMR
         retriever = db.as_retriever(
-            search_type="mmr",  # Maximum Marginal Relevance for diversity
+            search_type="similarity_score_threshold",
             search_kwargs={
                 "k": k,
-                "fetch_k": k * 2,  # Fetch more for MMR to choose from
-                "lambda_mult": 0.7  # Balance between relevance and diversity
+                "score_threshold": 0.5  # Only return documents with similarity score >= 0.5
             }
         )
         

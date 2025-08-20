@@ -60,7 +60,7 @@ def create_contextual_compression_retriever(base_retriever, llm, query: str):
     )
 
 def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
-    """Get or create a conversation chain with unified prompt"""
+    """Get or create a conversation chain with unified prompt and reranking"""
     globals_dict = get_globals()
     conversation_chains = globals_dict['conversation_chains']
     llm = globals_dict['llm']
@@ -78,9 +78,59 @@ def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
             output_key="answer"
         )
     
-    # Get retriever with compression
+    # Get base retriever
     base_retriever = get_vectorstore_retriever(topic_id, query)
-    retriever = create_contextual_compression_retriever(base_retriever, llm, query)
+    
+    # Create reranking retriever wrapper
+    try:
+        from retrieval.reranker import RelevanceReranker
+        reranker = RelevanceReranker()
+        
+        class RerankingRetriever:
+            def __init__(self, base_retriever, reranker):
+                self.base_retriever = base_retriever
+                self.reranker = reranker
+            
+            def get_relevant_documents(self, query: str):
+                # Get documents from base retriever
+                docs = self.base_retriever.get_relevant_documents(query)
+                
+                # Convert to dict format for reranking
+                doc_dicts = []
+                for doc in docs:
+                    doc_dict = {
+                        'page_content': doc.page_content,
+                        'metadata': doc.metadata
+                    }
+                    doc_dicts.append(doc_dict)
+                
+                # Rerank documents
+                reranked_dicts = self.reranker.rerank_documents(
+                    query, doc_dicts, top_k=10, score_threshold=0.0
+                )
+                
+                # Convert back to Document objects
+                from langchain.docstore.document import Document
+                reranked_docs = []
+                for doc_dict in reranked_dicts:
+                    doc = Document(
+                        page_content=doc_dict['page_content'],
+                        metadata=doc_dict['metadata']
+                    )
+                    reranked_docs.append(doc)
+                
+                return reranked_docs
+        
+        # Use reranking retriever
+        retriever = RerankingRetriever(base_retriever, reranker)
+        logger.info("✅ Using reranking retriever for better relevance")
+        
+    except Exception as e:
+        logger.warning(f"⚠️ Reranking failed: {e}, using base retriever")
+        retriever = base_retriever
+    
+    # Apply contextual compression
+    retriever = create_contextual_compression_retriever(retriever, llm, query)
     
     # Use unified prompt - no detection needed
     doc_chain = load_qa_chain(

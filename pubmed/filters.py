@@ -9,9 +9,19 @@ from datetime import datetime, timedelta
 logger = logging.getLogger(__name__)
 
 class PubMedFilters:
-    """Enhanced PubMed search filters with multi-topic boolean operator support"""
+    """Enhanced PubMed search filters with multi-topic boolean operator support and query enhancement"""
     
     def __init__(self):
+        # Initialize query enhancer if available
+        try:
+            from query.enhancer import QueryEnhancer
+            self.query_enhancer = QueryEnhancer()
+            self.enhancement_available = True
+            logger.info("✅ Query enhancement initialized")
+        except Exception as e:
+            self.query_enhancer = None
+            self.enhancement_available = False
+            logger.warning(f"⚠️ Query enhancement not available: {e}")
         # Boolean operators supported by PubMed
         self.boolean_operators = {
             'AND': 'AND',
@@ -145,7 +155,7 @@ class PubMedFilters:
 
     def build_multi_topic_query(self, topics: List[str], operator: str = 'AND', 
                                advanced_query: Optional[str] = None) -> str:
-        """Build query from multiple topics with user-selected boolean operator"""
+        """Build query from multiple topics with user-selected boolean operator and query enhancement"""
         if not topics and not advanced_query:
             raise ValueError("At least one topic or advanced query must be provided")
         
@@ -158,6 +168,15 @@ class PubMedFilters:
         
         if not clean_topics:
             raise ValueError("No valid topics provided")
+        
+        # Enhance topics if query enhancement is available
+        if self.enhancement_available and self.query_enhancer:
+            enhanced_topics = []
+            for topic in clean_topics:
+                enhanced_topic = self.query_enhancer.enhance_query(topic)
+                enhanced_topics.append(enhanced_topic)
+                logger.info(f"🔍 Enhanced topic: '{topic}' -> '{enhanced_topic}'")
+            clean_topics = enhanced_topics
         
         # Validate operator
         if operator not in self.boolean_operators:

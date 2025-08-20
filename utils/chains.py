@@ -60,7 +60,7 @@ def create_contextual_compression_retriever(base_retriever, llm, query: str):
     )
 
 def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
-    """Get or create a conversation chain with unified prompt and reranking"""
+    """Get or create a conversation chain with unified prompt, reranking, and enhanced features"""
     globals_dict = get_globals()
     conversation_chains = globals_dict['conversation_chains']
     llm = globals_dict['llm']
@@ -81,19 +81,44 @@ def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
     # Get base retriever
     base_retriever = get_vectorstore_retriever(topic_id, query)
     
-    # Create reranking retriever wrapper
+    # Create enhanced retriever with reranking, knowledge graph, and query enhancement
     try:
         from retrieval.reranker import RelevanceReranker
-        reranker = RelevanceReranker()
+        from query.enhancer import QueryEnhancer
+        from knowledge_graph import MedicalKnowledgeGraph, GraphRetriever
+        from feedback.relevance_tracker import RelevanceTracker
         
-        class RerankingRetriever:
-            def __init__(self, base_retriever, reranker):
+        # Initialize components
+        reranker = RelevanceReranker()
+        query_enhancer = QueryEnhancer()
+        feedback_tracker = RelevanceTracker()
+        
+        # Initialize knowledge graph if not exists
+        if not hasattr(get_or_create_chain, '_knowledge_graphs'):
+            get_or_create_chain._knowledge_graphs = {}
+        
+        if topic_id not in get_or_create_chain._knowledge_graphs:
+            get_or_create_chain._knowledge_graphs[topic_id] = MedicalKnowledgeGraph()
+            logger.info(f"🧠 Initialized knowledge graph for topic {topic_id}")
+        
+        # Create graph retriever
+        graph_retriever = GraphRetriever(get_or_create_chain._knowledge_graphs[topic_id])
+        
+        class EnhancedRetriever:
+            def __init__(self, base_retriever, reranker, query_enhancer, graph_retriever, feedback_tracker):
                 self.base_retriever = base_retriever
                 self.reranker = reranker
+                self.query_enhancer = query_enhancer
+                self.graph_retriever = graph_retriever
+                self.feedback_tracker = feedback_tracker
             
             def get_relevant_documents(self, query: str):
+                # Enhance query
+                enhanced_query = self.query_enhancer.enhance_query(query)
+                logger.info(f"🔍 Enhanced query: '{query}' -> '{enhanced_query}'")
+                
                 # Get documents from base retriever
-                docs = self.base_retriever.get_relevant_documents(query)
+                docs = self.base_retriever.get_relevant_documents(enhanced_query)
                 
                 # Convert to dict format for reranking
                 doc_dicts = []
@@ -104,10 +129,19 @@ def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
                     }
                     doc_dicts.append(doc_dict)
                 
+                # Get graph-enhanced documents
+                graph_docs = self.graph_retriever.graph_search(enhanced_query, doc_dicts)
+                
+                # Combine documents
+                combined_docs = doc_dicts + graph_docs
+                
                 # Rerank documents
                 reranked_dicts = self.reranker.rerank_documents(
-                    query, doc_dicts, top_k=10, score_threshold=0.0
+                    enhanced_query, combined_docs, top_k=10, score_threshold=0.0
                 )
+                
+                # Track query for feedback
+                self.feedback_tracker.track_query(query, topic_id, len(reranked_dicts))
                 
                 # Convert back to Document objects
                 from langchain.docstore.document import Document
@@ -121,12 +155,12 @@ def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
                 
                 return reranked_docs
         
-        # Use reranking retriever
-        retriever = RerankingRetriever(base_retriever, reranker)
-        logger.info("✅ Using reranking retriever for better relevance")
+        # Use enhanced retriever
+        retriever = EnhancedRetriever(base_retriever, reranker, query_enhancer, graph_retriever, feedback_tracker)
+        logger.info("✅ Using enhanced retriever with reranking, knowledge graph, and query enhancement")
         
     except Exception as e:
-        logger.warning(f"⚠️ Reranking failed: {e}, using base retriever")
+        logger.warning(f"⚠️ Enhanced features failed: {e}, using base retriever")
         retriever = base_retriever
     
     # Apply contextual compression

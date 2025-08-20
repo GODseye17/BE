@@ -4,10 +4,12 @@ API Routes for Vivum RAG Backend
 import os
 import uuid
 import logging
+import hashlib
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
 
 from models import TopicRequest, QueryRequest, TopicResponse, ChatResponse
 from pubmed import QueryPreprocessor
@@ -19,6 +21,25 @@ from utils import (
 )
 from pubmed.filters import PubMedFilters
 from .dependencies import fetch_data_background
+
+# Import performance monitoring and optimization components
+try:
+    from utils.monitoring import PerformanceMonitor
+    from utils.connection_pool import ConnectionPool
+    from utils.rate_limiter import RateLimiter
+    from utils.cache import CacheManager
+    
+    # Initialize components
+    performance_monitor = PerformanceMonitor()
+    connection_pool = ConnectionPool()
+    rate_limiter = RateLimiter()
+    cache = CacheManager()
+    
+    ENHANCED_FEATURES_AVAILABLE = True
+    logger.info("✅ Enhanced features (monitoring, caching, rate limiting) initialized")
+except Exception as e:
+    ENHANCED_FEATURES_AVAILABLE = False
+    logger.warning(f"⚠️ Enhanced features not available: {e}")
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -56,6 +77,59 @@ def ping():
     globals_dict = get_globals()
     background_tasks_status = globals_dict['background_tasks_status']
     return {"status": "alive", "active_tasks": len(background_tasks_status)}
+
+@router.get("/performance-metrics")
+async def get_performance_metrics():
+    """Get performance metrics and system health"""
+    try:
+        if ENHANCED_FEATURES_AVAILABLE:
+            metrics = performance_monitor.get_metrics()
+            system_metrics = performance_monitor.get_system_metrics()
+            
+            return {
+                "performance_metrics": metrics,
+                "system_health": system_metrics,
+                "enhanced_features": True
+            }
+        else:
+            return {
+                "performance_metrics": {},
+                "system_health": {},
+                "enhanced_features": False,
+                "message": "Performance monitoring not available"
+            }
+    except Exception as e:
+        logger.error(f"Error getting performance metrics: {e}")
+        raise HTTPException(status_code=500, detail="Error retrieving performance metrics")
+
+@router.get("/system-health")
+async def get_system_health():
+    """Get comprehensive system health status"""
+    try:
+        globals_dict = get_globals()
+        
+        health_status = {
+            "database": "connected" if globals_dict['supabase'] else "disconnected",
+            "llm": "loaded" if globals_dict['llm'] else "not_loaded",
+            "embeddings": "loaded" if globals_dict['embeddings'] else "not_loaded",
+            "enhanced_features": ENHANCED_FEATURES_AVAILABLE,
+            "active_tasks": len(globals_dict['background_tasks_status']),
+            "conversation_chains": len(globals_dict['conversation_chains'])
+        }
+        
+        if ENHANCED_FEATURES_AVAILABLE:
+            system_metrics = performance_monitor.get_system_metrics()
+            health_status.update({
+                "cpu_usage": system_metrics.get("cpu_usage", 0),
+                "memory_usage": system_metrics.get("memory_usage", 0),
+                "disk_usage": system_metrics.get("disk_usage", 0)
+            })
+        
+        return health_status
+        
+    except Exception as e:
+        logger.error(f"Error getting system health: {e}")
+        raise HTTPException(status_code=500, detail="Error retrieving system health")
 @router.post("/fetch-topic-data", response_model=TopicResponse)
 async def fetch_topic_data(request: TopicRequest, background_tasks: BackgroundTasks):
     """Enhanced endpoint to fetch data from PubMed with multi-topic boolean search support"""
@@ -116,9 +190,25 @@ async def fetch_topic_data(request: TopicRequest, background_tasks: BackgroundTa
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/query", response_model=ChatResponse)
-async def answer_query(request: QueryRequest):
-    """Answer questions using RAG over stored topic articles"""
+async def answer_query(request: QueryRequest, http_request: Request):
+    """Enhanced query endpoint with caching, rate limiting, and performance monitoring"""
     try:
+        # Rate limiting (if available)
+        if ENHANCED_FEATURES_AVAILABLE:
+            client_id = http_request.headers.get("X-Client-ID", http_request.client.host)
+            if not await rate_limiter.is_allowed(client_id):
+                raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        
+        # Create cache key
+        cache_key = f"query_{request.topic_id}_{hashlib.md5(request.query.encode()).hexdigest()}"
+        
+        # Check cache first (if available)
+        if ENHANCED_FEATURES_AVAILABLE:
+            cached_result = cache.get(cache_key)
+            if cached_result:
+                logger.info(f"🎯 Cache hit for query: {request.query[:50]}...")
+                return cached_result
+        
         globals_dict = get_globals()
         supabase = globals_dict['supabase']
         llm = globals_dict['llm']
@@ -141,7 +231,7 @@ async def answer_query(request: QueryRequest):
 
         conversation_id = request.conversation_id or str(uuid.uuid4())
 
-        # Set up the chain with dynamic prompt selection
+        # Set up the chain with enhanced features
         try:
             chain = get_or_create_chain(request.topic_id, conversation_id, request.query)
             if not chain:
@@ -155,8 +245,13 @@ async def answer_query(request: QueryRequest):
         logger.info(f"Processing query: {request.query}")
 
         try:
-            # Invoke chain
-            result = chain.invoke({"question": request.query})
+            # Invoke chain with performance monitoring
+            if ENHANCED_FEATURES_AVAILABLE:
+                with performance_monitor.track_performance("chain_invocation"):
+                    result = chain.invoke({"question": request.query})
+            else:
+                result = chain.invoke({"question": request.query})
+                
             raw_answer = result.get("answer", "Sorry, I couldn't generate an answer to your question.")
             
             # Post-process to remove any system artifacts
@@ -172,7 +267,15 @@ async def answer_query(request: QueryRequest):
         # Validate comprehensive responses
         answer = validate_comprehensive_response(request.query, answer, request.topic_id)
 
-        return {"response": answer, "conversation_id": conversation_id}
+        # Prepare response
+        response_data = {"response": answer, "conversation_id": conversation_id}
+        
+        # Cache the result (if available)
+        if ENHANCED_FEATURES_AVAILABLE:
+            cache.set(cache_key, response_data, expire=3600)  # 1 hour cache
+            logger.info(f"💾 Cached query result for: {request.query[:50]}...")
+
+        return response_data
     
     except HTTPException:
         raise

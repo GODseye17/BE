@@ -16,7 +16,8 @@ from api import router
 from config.settings import (
     SUPABASE_URL, SUPABASE_KEY, TOGETHER_API_KEY, OPENAI_API_KEY, LLM_MODEL,
     LLM_TEMPERATURE, LLM_MAX_TOKENS, EMBEDDING_MODEL,
-    CLEANUP_INTERVAL_HOURS, CLEANUP_DAYS_OLD, PORT
+    CLEANUP_INTERVAL_HOURS, CLEANUP_DAYS_OLD, PORT,
+    ENABLE_MEMORY_MONITORING, MAX_MEMORY_USAGE
 )
 from core import set_globals
 from llm import TogetherChatModel
@@ -80,6 +81,42 @@ async def lifespan(app: FastAPI):
         # Create the cleanup task
         asyncio.create_task(auto_cleanup_task())
         logger.info(f"🧹 Automatic cleanup scheduled every {CLEANUP_INTERVAL_HOURS} hours for topics older than {CLEANUP_DAYS_OLD} days")
+        
+        # Start memory monitoring task
+        if ENABLE_MEMORY_MONITORING:
+            async def memory_monitor_task():
+                """Monitor memory usage and trigger cleanup if needed"""
+                import psutil
+                while True:
+                    try:
+                        await asyncio.sleep(300)  # Check every 5 minutes
+                        memory_percent = psutil.virtual_memory().percent
+                        memory_mb = psutil.virtual_memory().used / (1024 * 1024)
+                        
+                        if memory_mb > MAX_MEMORY_USAGE:
+                            logger.warning(f"⚠️ Memory usage high: {memory_mb:.1f}MB, triggering cleanup")
+                            
+                            # Trigger cleanup
+                            from utils import cleanup_conversation_chains
+                            cleanup_conversation_chains()
+                            
+                            # Clear knowledge graph cache
+                            try:
+                                from utils.enhanced_chains import _knowledge_graphs
+                                _knowledge_graphs.clear()
+                                logger.info("🧠 Cleared knowledge graph cache")
+                            except:
+                                pass
+                            
+                            logger.info("✅ Memory cleanup completed")
+                        
+                    except Exception as e:
+                        logger.error(f"Memory monitoring error: {e}")
+                        await asyncio.sleep(60)
+            
+            # Create the memory monitoring task
+            asyncio.create_task(memory_monitor_task())
+            logger.info("🧠 Memory monitoring enabled")
         
         logger.info("Using topic-specific FAISS stores only - no global vector stores")
             

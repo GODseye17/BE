@@ -9,6 +9,17 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# Initialize entity extractor if available
+try:
+    from knowledge_graph.entity_extractor import MedicalEntityExtractor
+    entity_extractor = MedicalEntityExtractor()
+    entity_extraction_available = True
+    logger.info("✅ Medical entity extraction initialized")
+except Exception as e:
+    entity_extractor = None
+    entity_extraction_available = False
+    logger.warning(f"⚠️ Medical entity extraction not available: {e}")
+
 # Initialize text splitter
 splitter = RecursiveCharacterTextSplitter(
     chunk_size=400,
@@ -17,7 +28,7 @@ splitter = RecursiveCharacterTextSplitter(
 )
 
 def extract_enhanced_article_data(article, idx):
-    """Extract comprehensive article data with proper error handling"""
+    """Extract comprehensive article data with proper error handling and entity extraction"""
     # Basic identifiers
     pmid = article.findtext(".//PMID") or "unknown"
     
@@ -48,6 +59,17 @@ def extract_enhanced_article_data(article, idx):
     # Publication types
     pub_types = [pt.text for pt in article.findall(".//PublicationType") if pt.text]
     
+    # Extract medical entities if available
+    entities = {}
+    if entity_extraction_available and entity_extractor:
+        try:
+            # Extract entities from title and abstract
+            full_text = f"{title} {abstract}"
+            entities = entity_extractor.extract_entities(full_text)
+            logger.info(f"🔬 Extracted {sum(len(ents) for ents in entities.values())} entities from PMID {pmid}")
+        except Exception as e:
+            logger.warning(f"⚠️ Entity extraction failed for PMID {pmid}: {e}")
+    
     return {
         'article_index': idx,
         'pmid': pmid,
@@ -59,7 +81,8 @@ def extract_enhanced_article_data(article, idx):
         'doi': doi,
         'mesh_terms': mesh_terms,
         'keywords': keywords,
-        'publication_types': pub_types
+        'publication_types': pub_types,
+        'entities': entities
     }
 
 def extract_structured_abstract(article):

@@ -1,0 +1,46 @@
+{
+  "phase2": {
+    "document_reranking": {
+      "status": "failed",
+      "error": "list index out of range"
+    },
+    "query_enhancement": {
+      "status": "failed",
+      "error": "'dict' object has no attribute 'lower'"
+    },
+    "knowledge_graph": {
+      "status": "failed",
+      "error": "Should extract disease entities"
+    },
+    "enhanced_retrieval": {
+      "status": "passed",
+      "message": "Enhanced retriever components available"
+    }
+  },
+  "phase3": {
+    "feedback_loop": {
+      "status": "failed",
+      "error": "'RelevanceTracker' object has no attribute 'track_query'"
+    },
+    "connection_pooling": {
+      "status": "failed",
+      "error": "'coroutine' object does not support the asynchronous context manager protocol"
+    },
+    "memory_management": {
+      "status": "failed",
+      "error": "Should have CPU usage"
+    },
+    "performance_monitoring": {
+      "status": "failed",
+      "error": "Test operation should succeed"
+    }
+  },
+  "overall": {
+    "start_time": "2025-08-21T04:51:45.657145",
+    "end_time": "2025-08-21T04:52:12.938498",
+    "total_tests": 8,
+    "passed_tests": 1,
+    "failed_tests": 7,
+    "success_rate": 12.5
+  }
+}

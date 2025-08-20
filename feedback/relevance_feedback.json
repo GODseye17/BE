@@ -1,0 +1,277 @@
+{
+  "queries": [
+    {
+      "query": "diabetes treatment",
+      "topic_id": "test_topic",
+      "query_type": "general",
+      "timestamp": "2025-08-21T04:57:20.167920",
+      "article_count": 1,
+      "avg_relevance_score": 0.8,
+      "min_relevance_score": 0.8,
+      "max_relevance_score": 0.8,
+      "articles": [
+        {
+          "pmid": "12345",
+          "title": "Diabetes Study",
+          "relevance_score": 0.8,
+          "feedback_given": true,
+          "user_relevant": true,
+          "user_score": 4,
+          "feedback_timestamp": "2025-08-21T05:07:08.519551"
+        }
+      ]
+    },
+    {
+      "query": "diabetes treatment",
+      "topic_id": "test_topic",
+      "query_type": "general",
+      "timestamp": "2025-08-21T04:57:55.442970",
+      "article_count": 1,
+      "avg_relevance_score": 0.8,
+      "min_relevance_score": 0.8,
+      "max_relevance_score": 0.8,
+      "articles": [
+        {
+          "pmid": "12345",
+          "title": "Diabetes Study",
+          "relevance_score": 0.8,
+          "feedback_given": false
+        }
+      ]
+    },
+    {
+      "query": "diabetes treatment",
+      "topic_id": "test_topic",
+      "query_type": "general",
+      "timestamp": "2025-08-21T05:04:06.139841",
+      "article_count": 1,
+      "avg_relevance_score": 0.8,
+      "min_relevance_score": 0.8,
+      "max_relevance_score": 0.8,
+      "articles": [
+        {
+          "pmid": "12345",
+          "title": "Diabetes Study",
+          "relevance_score": 0.8,
+          "feedback_given": false
+        }
+      ]
+    },
+    {
+      "query": "diabetes treatment",
+      "topic_id": "test_topic",
+      "query_type": "general",
+      "timestamp": "2025-08-21T05:06:15.875469",
+      "article_count": 1,
+      "avg_relevance_score": 0.8,
+      "min_relevance_score": 0.8,
+      "max_relevance_score": 0.8,
+      "articles": [
+        {
+          "pmid": "12345",
+          "title": "Diabetes Study",
+          "relevance_score": 0.8,
+          "feedback_given": false
+        }
+      ]
+    },
+    {
+      "query": "diabetes treatment",
+      "topic_id": "test_topic",
+      "query_type": "general",
+      "timestamp": "2025-08-21T05:07:08.519083",
+      "article_count": 1,
+      "avg_relevance_score": 0.8,
+      "min_relevance_score": 0.8,
+      "max_relevance_score": 0.8,
+      "articles": [
+        {
+          "pmid": "12345",
+          "title": "Diabetes Study",
+          "relevance_score": 0.8,
+          "feedback_given": false
+        }
+      ]
+    }
+  ],
+  "articles": {
+    "12345": {
+      "feedback_count": 5,
+      "relevant_count": 5,
+      "avg_user_score": 4.0,
+      "feedback_history": [
+        {
+          "query": "diabetes treatment",
+          "is_relevant": true,
+          "user_score": 4,
+          "timestamp": "2025-08-21T04:57:20.168146"
+        },
+        {
+          "query": "diabetes treatment",
+          "is_relevant": true,
+          "user_score": 4,
+          "timestamp": "2025-08-21T04:57:55.443180"
+        },
+        {
+          "query": "diabetes treatment",
+          "is_relevant": true,
+          "user_score": 4,
+          "timestamp": "2025-08-21T05:04:06.140219"
+        },
+        {
+          "query": "diabetes treatment",
+          "is_relevant": true,
+          "user_score": 4,
+          "timestamp": "2025-08-21T05:06:15.876074"
+        },
+        {
+          "query": "diabetes treatment",
+          "is_relevant": true,
+          "user_score": 4,
+          "timestamp": "2025-08-21T05:07:08.519554"
+        }
+      ]
+    }
+  },
+  "threshold_adjustments": [
+    {
+      "timestamp": "2025-08-21T04:57:55.443311",
+      "previous_thresholds": {
+        "min_score": 0.4,
+        "high_relevance": 0.7,
+        "medium_relevance": 0.5,
+        "low_relevance": 0.3
+      },
+      "satisfaction_score": 4,
+      "reason": "user_satisfaction",
+      "adjustment": "no_adjustment",
+      "new_thresholds": {
+        "min_score": 0.4,
+        "high_relevance": 0.7,
+        "medium_relevance": 0.5,
+        "low_relevance": 0.3
+      }
+    },
+    {
+      "timestamp": "2025-08-21T05:04:06.140377",
+      "previous_thresholds": {
+        "min_score": 0.4,
+        "high_relevance": 0.7,
+        "medium_relevance": 0.5,
+        "low_relevance": 0.3
+      },
+      "satisfaction_score": 4,
+      "reason": "user_satisfaction",
+      "adjustment": "no_adjustment",
+      "new_thresholds": {
+        "min_score": 0.4,
+        "high_relevance": 0.7,
+        "medium_relevance": 0.5,
+        "low_relevance": 0.3
+      }
+    },
+    {
+      "timestamp": "2025-08-21T05:06:15.876335",
+      "previous_thresholds": {
+        "min_score": 0.4,
+        "high_relevance": 0.7,
+        "medium_relevance": 0.5,
+        "low_relevance": 0.3
+      },
+      "satisfaction_score": 4,
+      "reason": "user_satisfaction",
+      "adjustment": "no_adjustment",
+      "new_thresholds": {
+        "min_score": 0.4,
+        "high_relevance": 0.7,
+        "medium_relevance": 0.5,
+        "low_relevance": 0.3
+      }
+    },
+    {
+      "timestamp": "2025-08-21T05:07:08.519829",
+      "previous_thresholds": {
+        "min_score": 0.4,
+        "high_relevance": 0.7,
+        "medium_relevance": 0.5,
+        "low_relevance": 0.3
+      },
+      "satisfaction_score": 4,
+      "reason": "user_satisfaction",
+      "adjustment": "no_adjustment",
+      "new_thresholds": {
+        "min_score": 0.4,
+        "high_relevance": 0.7,
+        "medium_relevance": 0.5,
+        "low_relevance": 0.3
+      }
+    }
+  ],
+  "query_patterns": {
+    "general": {
+      "query_count": 5,
+      "avg_article_count": 1.0,
+      "avg_relevance_score": 0.8,
+      "queries": [
+        {
+          "query": "diabetes treatment",
+          "article_count": 1,
+          "avg_relevance": 0.8,
+          "timestamp": "2025-08-21T04:57:20.167925"
+        },
+        {
+          "query": "diabetes treatment",
+          "article_count": 1,
+          "avg_relevance": 0.8,
+          "timestamp": "2025-08-21T04:57:55.442980"
+        },
+        {
+          "query": "diabetes treatment",
+          "article_count": 1,
+          "avg_relevance": 0.8,
+          "timestamp": "2025-08-21T05:04:06.139849"
+        },
+        {
+          "query": "diabetes treatment",
+          "article_count": 1,
+          "avg_relevance": 0.8,
+          "timestamp": "2025-08-21T05:06:15.875479"
+        },
+        {
+          "query": "diabetes treatment",
+          "article_count": 1,
+          "avg_relevance": 0.8,
+          "timestamp": "2025-08-21T05:07:08.519093"
+        }
+      ]
+    }
+  },
+  "created_at": "2025-08-21T04:57:20.167914",
+  "last_updated": "2025-08-21T05:07:08.519849",
+  "query_satisfaction": [
+    {
+      "query": "diabetes treatment",
+      "satisfaction_score": 4,
+      "feedback_text": "Very helpful response",
+      "timestamp": "2025-08-21T04:57:55.443309"
+    },
+    {
+      "query": "diabetes treatment",
+      "satisfaction_score": 4,
+      "feedback_text": "Very helpful response",
+      "timestamp": "2025-08-21T05:04:06.140375"
+    },
+    {
+      "query": "diabetes treatment",
+      "satisfaction_score": 4,
+      "feedback_text": "Very helpful response",
+      "timestamp": "2025-08-21T05:06:15.876333"
+    },
+    {
+      "query": "diabetes treatment",
+      "satisfaction_score": 4,
+      "feedback_text": "Very helpful response",
+      "timestamp": "2025-08-21T05:07:08.519827"
+    }
+  ]
+}

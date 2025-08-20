@@ -195,9 +195,9 @@ class Phase2Phase3Tester:
             test_text = "Diabetes mellitus is a chronic disease affecting blood glucose levels."
             entities = extractor.extract_entities(test_text)
             
-            # Verify entities extracted
-            assert "diseases" in entities, "Should extract disease entities"
-            assert len(entities["diseases"]) > 0, "Should find diabetes as a disease"
+            # Verify entities extracted (note: entity types are uppercase)
+            assert "DISEASE" in entities, "Should extract disease entities"
+            assert len(entities["DISEASE"]) > 0, "Should find diabetes as a disease"
             
             # Test knowledge graph building
             kg = MedicalKnowledgeGraph()
@@ -263,6 +263,14 @@ class Phase2Phase3Tester:
             
             # Initialize tracker
             tracker = RelevanceTracker()
+            
+            # Test query result recording
+            tracker.record_query_result(
+                query="diabetes treatment",
+                topic_id="test_topic",
+                articles=[{"pubmed_id": "12345", "title": "Diabetes Study"}],
+                relevance_scores=[0.8]
+            )
             
             # Test article feedback
             tracker.record_article_feedback(
@@ -344,16 +352,16 @@ class Phase2Phase3Tester:
             # Get system metrics
             system_metrics = monitor.get_system_metrics()
             
-            # Verify metrics
-            assert "cpu_usage" in system_metrics, "Should have CPU usage"
-            assert "memory_usage" in system_metrics, "Should have memory usage"
+            # Verify metrics (using correct key names)
+            assert "cpu_percent" in system_metrics, "Should have CPU usage"
+            assert "memory_percent" in system_metrics, "Should have memory usage"
             assert "disk_usage" in system_metrics, "Should have disk usage"
             
             logger.info("✅ Memory management test passed")
             self.test_results["phase3"]["memory_management"] = {
                 "status": "passed",
-                "cpu_usage": system_metrics["cpu_usage"],
-                "memory_usage": system_metrics["memory_usage"],
+                "cpu_usage": system_metrics["cpu_percent"],
+                "memory_usage": system_metrics["memory_percent"],
                 "disk_usage": system_metrics["disk_usage"]
             }
             
@@ -374,14 +382,14 @@ class Phase2Phase3Tester:
             # Initialize monitor
             monitor = PerformanceMonitor()
             
-            # Test performance tracking
+            # Test performance tracking with async function
             @monitor.track_performance("test_operation")
-            def test_operation():
-                time.sleep(0.1)  # Simulate work
+            async def test_operation():
+                await asyncio.sleep(0.1)  # Simulate async work
                 return "success"
             
             # Run test operation
-            result = test_operation()
+            result = await test_operation()
             assert result == "success", "Test operation should succeed"
             
             # Get metrics
@@ -394,7 +402,7 @@ class Phase2Phase3Tester:
             self.test_results["phase3"]["performance_monitoring"] = {
                 "status": "passed",
                 "operations_tracked": len(metrics),
-                "test_operation_avg_time": metrics.get("test_operation", {}).get("avg_time", 0)
+                "test_operation_avg_time": metrics.get("test_operation", {}).get("avg_duration", 0)
             }
             
         except Exception as e:

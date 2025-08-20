@@ -103,37 +103,61 @@ def create_faiss_store_metadata_only(docs: List[Document], topic_id: str):
 
 def get_vectorstore_retriever(topic_id: str, query: str):
     """Get topic-specific FAISS retriever with query-aware k selection"""
-    # CRITICAL: Only use topic-specific FAISS, never global stores
-    vectorstore_path = Path("vectorstores") / str(topic_id)
-    index_path = vectorstore_path / "index.faiss"
-    
-    # Verify the vector store exists
-    if not vectorstore_path.exists():
-        logger.error(f"Vectorstore directory not found: {vectorstore_path}")
-        raise HTTPException(
-            status_code=404, 
-            detail=f"No vector store found for topic {topic_id}. Please ensure data fetching completed successfully."
-        )
-    
-    if not index_path.exists():
-        logger.error(f"FAISS index file not found: {index_path}")
-        raise HTTPException(
-            status_code=404, 
-            detail=f"FAISS index file not found for topic {topic_id}. The data fetching may have failed."
-        )
-    
     try:
-        globals_dict = get_globals()
-        embeddings = globals_dict['embeddings']
-        supabase = globals_dict['supabase']
+        # CRITICAL: Only use topic-specific FAISS, never global stores
+        vectorstore_path = Path("vectorstores") / str(topic_id)
+        index_path = vectorstore_path / "index.faiss"
         
-        # Load ONLY the topic-specific FAISS store
-        logger.info(f"Loading topic-specific FAISS from: {vectorstore_path}")
-        db = FAISS.load_local(
-            str(vectorstore_path), 
-            embeddings, 
-            allow_dangerous_deserialization=True
-        )
+        # Verify the vector store exists
+        if not vectorstore_path.exists():
+            logger.error(f"Vectorstore directory not found: {vectorstore_path}")
+            raise HTTPException(
+                status_code=404, 
+                detail=f"No vector store found for topic {topic_id}. Please ensure data fetching completed successfully."
+            )
+        
+        if not index_path.exists():
+            logger.error(f"FAISS index file not found: {index_path}")
+            raise HTTPException(
+                status_code=404, 
+                detail=f"FAISS index file not found for topic {topic_id}. The data fetching may have failed."
+            )
+        
+        # Cache FAISS stores in memory for performance
+        if not hasattr(get_vectorstore_retriever, '_faiss_cache'):
+            get_vectorstore_retriever._faiss_cache = {}
+        
+        # Check if we already have this FAISS store in cache
+        if topic_id in get_vectorstore_retriever._faiss_cache:
+            db = get_vectorstore_retriever._faiss_cache[topic_id]
+            logger.debug(f"✅ Using cached FAISS store for topic {topic_id}")
+        else:
+            try:
+                globals_dict = get_globals()
+                embeddings = globals_dict['embeddings']
+                supabase = globals_dict['supabase']
+                
+                # Load ONLY the topic-specific FAISS store
+                logger.info(f"Loading topic-specific FAISS from: {vectorstore_path}")
+                db = FAISS.load_local(
+                    str(vectorstore_path), 
+                    embeddings, 
+                    allow_dangerous_deserialization=True
+                )
+                
+                # Cache the loaded FAISS store
+                get_vectorstore_retriever._faiss_cache[topic_id] = db
+                logger.info(f"✅ Cached FAISS store for topic {topic_id}")
+                
+                # Limit cache size to prevent memory issues
+                if len(get_vectorstore_retriever._faiss_cache) > 10:
+                    # Remove oldest entry (simple LRU)
+                    oldest_topic = next(iter(get_vectorstore_retriever._faiss_cache))
+                    del get_vectorstore_retriever._faiss_cache[oldest_topic]
+                    logger.info(f"🗑️ Removed oldest FAISS cache entry: {oldest_topic}")
+            except Exception as e:
+                logger.error(f"Error loading FAISS store: {e}")
+                raise
         
         # Determine k and search type based on query type
         query_lower = query.lower()
@@ -159,13 +183,15 @@ def get_vectorstore_retriever(topic_id: str, query: str):
             # For comprehensive queries, get more chunks
             # Get article count from Supabase
             article_count = 20  # default
-            if supabase:
-                try:
+            try:
+                globals_dict = get_globals()
+                supabase = globals_dict.get('supabase')
+                if supabase:
                     result = supabase.table("articles").select("pubmed_id").eq("topic_id", topic_id).execute()
                     article_count = len(result.data) if result.data else 20
-                except Exception as e:
-                    logger.warning(f"Could not get article count: {e}")
-                    article_count = 20
+            except Exception as e:
+                logger.warning(f"Could not get article count: {e}")
+                article_count = 20
             
             # Use 3 chunks per article for comprehensive queries
             k = min(article_count * 3, 100)

@@ -109,3 +109,315 @@ PHASE3 Results:
 2025-08-21 04:53:27,892 - INFO -    ❌ performance_monitoring: failed
 2025-08-21 04:53:27,892 - INFO - 💾 Test results saved to: phase2_phase3_test_results_20250821_045327.json
 2025-08-21 04:53:27,893 - INFO - ✅ All Phase 2 & Phase 3 tests completed!
+2025-08-21 04:57:11,509 - INFO - 🚀 Starting Phase 2 & Phase 3 Integration Tests
+2025-08-21 04:57:11,510 - INFO - 🔍 Testing Phase 2: Quality Enhancement Features
+2025-08-21 04:57:11,510 - INFO - 📊 Testing Document Reranking...
+2025-08-21 04:57:17,809 - INFO - Use pytorch device: mps
+2025-08-21 04:57:18,788 - INFO - ✅ Loaded cross-encoder reranking model
+2025-08-21 04:57:18,939 - INFO - 🔍 Reranked 3 documents -> 1 relevant (threshold=0.0)
+2025-08-21 04:57:18,939 - INFO - ✅ Document reranking test passed - 1 documents reranked
+2025-08-21 04:57:18,939 - INFO - 🔍 Testing Query Enhancement...
+2025-08-21 04:57:18,942 - INFO - 🔧 Enhancing query: mi treatment
+2025-08-21 04:57:18,946 - INFO - ✅ Enhanced query: (((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title]) OR (((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title/Abstract])
+2025-08-21 04:57:18,946 - INFO - 📊 Detected intents: ['treatment']
+2025-08-21 04:57:18,946 - INFO -   'mi treatment' -> '(((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title]) OR (((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title/Abstract])'
+2025-08-21 04:57:18,946 - INFO - 🔧 Enhancing query: copd symptoms
+2025-08-21 04:57:18,946 - INFO - ✅ Enhanced query: (((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title]) OR (((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title/Abstract])
+2025-08-21 04:57:18,946 - INFO - 📊 Detected intents: ['diagnosis']
+2025-08-21 04:57:18,946 - INFO -   'copd symptoms' -> '(((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title]) OR (((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title/Abstract])'
+2025-08-21 04:57:18,946 - INFO - 🔧 Enhancing query: heart attack prevention
+2025-08-21 04:57:18,947 - INFO - ✅ Enhanced query: (((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title]) OR (((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title/Abstract])
+2025-08-21 04:57:18,947 - INFO - 📊 Detected intents: ['prevention']
+2025-08-21 04:57:18,947 - INFO -   'heart attack prevention' -> '(((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title]) OR (((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title/Abstract])'
+2025-08-21 04:57:18,947 - INFO - ✅ Query enhancement test passed
+2025-08-21 04:57:18,947 - INFO - 🧠 Testing Knowledge Graph Integration...
+2025-08-21 04:57:19,662 - WARNING - ⚠️ spaCy model not found, using rule-based extraction
+2025-08-21 04:57:19,664 - WARNING - ⚠️ spaCy model not found, using rule-based extraction
+2025-08-21 04:57:19,664 - INFO - Building knowledge graph from 1 articles
+2025-08-21 04:57:19,666 - INFO - Knowledge graph built with 7 entities and 0 relationships
+2025-08-21 04:57:19,666 - INFO - ✅ Knowledge graph integration test passed
+2025-08-21 04:57:19,666 - INFO - 🔍 Testing Enhanced Retrieval...
+2025-08-21 04:57:20,167 - INFO - ✅ Enhanced retrieval components available
+2025-08-21 04:57:20,167 - INFO - 🔧 Testing Phase 3: Advanced Features
+2025-08-21 04:57:20,167 - INFO - 🔄 Testing Feedback Loop System...
+2025-08-21 04:57:20,168 - INFO - 📊 Recorded query result: diabetes treatment (1 articles)
+2025-08-21 04:57:20,168 - INFO - ✅ Recorded feedback for PMID 12345: relevant
+2025-08-21 04:57:20,168 - ERROR - ❌ Feedback loop test failed: 'adjustment'
+2025-08-21 04:57:20,168 - INFO - 🔗 Testing Connection Pooling...
+2025-08-21 04:57:20,377 - INFO - ✅ Connection pooling test passed
+2025-08-21 04:57:20,378 - INFO - 🧠 Testing Memory Management...
+2025-08-21 04:57:21,379 - INFO - ✅ Memory management test passed
+2025-08-21 04:57:21,379 - INFO - 📊 Testing Performance Monitoring...
+2025-08-21 04:57:21,481 - INFO - ✅ Performance monitoring test passed
+2025-08-21 04:57:21,481 - INFO - 📋 Generating Test Summary...
+2025-08-21 04:57:21,481 - INFO - 📊 Test Summary:
+2025-08-21 04:57:21,481 - INFO -    Total Tests: 8
+2025-08-21 04:57:21,481 - INFO -    Passed: 7
+2025-08-21 04:57:21,481 - INFO -    Failed: 1
+2025-08-21 04:57:21,481 - INFO -    Success Rate: 87.5%
+2025-08-21 04:57:21,481 - INFO - 
+PHASE2 Results:
+2025-08-21 04:57:21,481 - INFO -    ✅ document_reranking: passed
+2025-08-21 04:57:21,481 - INFO -    ✅ query_enhancement: passed
+2025-08-21 04:57:21,481 - INFO -    ✅ knowledge_graph: passed
+2025-08-21 04:57:21,481 - INFO -    ✅ enhanced_retrieval: passed
+2025-08-21 04:57:21,481 - INFO - 
+PHASE3 Results:
+2025-08-21 04:57:21,481 - INFO -    ❌ feedback_loop: failed
+2025-08-21 04:57:21,481 - INFO -    ✅ connection_pooling: passed
+2025-08-21 04:57:21,481 - INFO -    ✅ memory_management: passed
+2025-08-21 04:57:21,481 - INFO -    ✅ performance_monitoring: passed
+2025-08-21 04:57:21,482 - INFO - 💾 Test results saved to: phase2_phase3_test_results_20250821_045721.json
+2025-08-21 04:57:21,482 - INFO - ✅ All Phase 2 & Phase 3 tests completed!
+2025-08-21 04:57:48,151 - INFO - 🚀 Starting Phase 2 & Phase 3 Integration Tests
+2025-08-21 04:57:48,151 - INFO - 🔍 Testing Phase 2: Quality Enhancement Features
+2025-08-21 04:57:48,151 - INFO - 📊 Testing Document Reranking...
+2025-08-21 04:57:53,418 - INFO - Use pytorch device: mps
+2025-08-21 04:57:54,210 - INFO - ✅ Loaded cross-encoder reranking model
+2025-08-21 04:57:54,296 - INFO - 🔍 Reranked 3 documents -> 1 relevant (threshold=0.0)
+2025-08-21 04:57:54,296 - INFO - ✅ Document reranking test passed - 1 documents reranked
+2025-08-21 04:57:54,296 - INFO - 🔍 Testing Query Enhancement...
+2025-08-21 04:57:54,297 - INFO - 🔧 Enhancing query: mi treatment
+2025-08-21 04:57:54,300 - INFO - ✅ Enhanced query: (((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title]) OR (((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title/Abstract])
+2025-08-21 04:57:54,300 - INFO - 📊 Detected intents: ['treatment']
+2025-08-21 04:57:54,300 - INFO -   'mi treatment' -> '(((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title]) OR (((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title/Abstract])'
+2025-08-21 04:57:54,300 - INFO - 🔧 Enhancing query: copd symptoms
+2025-08-21 04:57:54,300 - INFO - ✅ Enhanced query: (((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title]) OR (((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title/Abstract])
+2025-08-21 04:57:54,300 - INFO - 📊 Detected intents: ['diagnosis']
+2025-08-21 04:57:54,300 - INFO -   'copd symptoms' -> '(((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title]) OR (((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title/Abstract])'
+2025-08-21 04:57:54,300 - INFO - 🔧 Enhancing query: heart attack prevention
+2025-08-21 04:57:54,301 - INFO - ✅ Enhanced query: (((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title]) OR (((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title/Abstract])
+2025-08-21 04:57:54,301 - INFO - 📊 Detected intents: ['prevention']
+2025-08-21 04:57:54,301 - INFO -   'heart attack prevention' -> '(((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title]) OR (((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title/Abstract])'
+2025-08-21 04:57:54,301 - INFO - ✅ Query enhancement test passed
+2025-08-21 04:57:54,301 - INFO - 🧠 Testing Knowledge Graph Integration...
+2025-08-21 04:57:54,984 - WARNING - ⚠️ spaCy model not found, using rule-based extraction
+2025-08-21 04:57:54,986 - WARNING - ⚠️ spaCy model not found, using rule-based extraction
+2025-08-21 04:57:54,986 - INFO - Building knowledge graph from 1 articles
+2025-08-21 04:57:54,988 - INFO - Knowledge graph built with 7 entities and 0 relationships
+2025-08-21 04:57:54,988 - INFO - ✅ Knowledge graph integration test passed
+2025-08-21 04:57:54,988 - INFO - 🔍 Testing Enhanced Retrieval...
+2025-08-21 04:57:55,439 - INFO - ✅ Enhanced retrieval components available
+2025-08-21 04:57:55,440 - INFO - 🔧 Testing Phase 3: Advanced Features
+2025-08-21 04:57:55,440 - INFO - 🔄 Testing Feedback Loop System...
+2025-08-21 04:57:55,442 - INFO - ✅ Loaded feedback data with 1 queries
+2025-08-21 04:57:55,443 - INFO - 📊 Recorded query result: diabetes treatment (1 articles)
+2025-08-21 04:57:55,443 - INFO - ✅ Recorded feedback for PMID 12345: relevant
+2025-08-21 04:57:55,443 - INFO - 🔧 Adjusted thresholds based on satisfaction 4: no_adjustment
+2025-08-21 04:57:55,443 - INFO - ✅ Recorded query satisfaction: 4/5.0
+2025-08-21 04:57:55,443 - INFO - ✅ Feedback loop test passed
+2025-08-21 04:57:55,443 - INFO - 🔗 Testing Connection Pooling...
+2025-08-21 04:57:55,518 - INFO - ✅ Connection pooling test passed
+2025-08-21 04:57:55,518 - INFO - 🧠 Testing Memory Management...
+2025-08-21 04:57:56,524 - INFO - ✅ Memory management test passed
+2025-08-21 04:57:56,525 - INFO - 📊 Testing Performance Monitoring...
+2025-08-21 04:57:56,627 - INFO - ✅ Performance monitoring test passed
+2025-08-21 04:57:56,627 - INFO - 📋 Generating Test Summary...
+2025-08-21 04:57:56,627 - INFO - 📊 Test Summary:
+2025-08-21 04:57:56,627 - INFO -    Total Tests: 8
+2025-08-21 04:57:56,627 - INFO -    Passed: 8
+2025-08-21 04:57:56,627 - INFO -    Failed: 0
+2025-08-21 04:57:56,627 - INFO -    Success Rate: 100.0%
+2025-08-21 04:57:56,627 - INFO - 
+PHASE2 Results:
+2025-08-21 04:57:56,627 - INFO -    ✅ document_reranking: passed
+2025-08-21 04:57:56,627 - INFO -    ✅ query_enhancement: passed
+2025-08-21 04:57:56,627 - INFO -    ✅ knowledge_graph: passed
+2025-08-21 04:57:56,627 - INFO -    ✅ enhanced_retrieval: passed
+2025-08-21 04:57:56,628 - INFO - 
+PHASE3 Results:
+2025-08-21 04:57:56,628 - INFO -    ✅ feedback_loop: passed
+2025-08-21 04:57:56,628 - INFO -    ✅ connection_pooling: passed
+2025-08-21 04:57:56,628 - INFO -    ✅ memory_management: passed
+2025-08-21 04:57:56,628 - INFO -    ✅ performance_monitoring: passed
+2025-08-21 04:57:56,628 - INFO - 💾 Test results saved to: phase2_phase3_test_results_20250821_045756.json
+2025-08-21 04:57:56,629 - INFO - ✅ All Phase 2 & Phase 3 tests completed!
+2025-08-21 05:03:58,405 - INFO - 🚀 Starting Phase 2 & Phase 3 Integration Tests
+2025-08-21 05:03:58,405 - INFO - 🔍 Testing Phase 2: Quality Enhancement Features
+2025-08-21 05:03:58,405 - INFO - 📊 Testing Document Reranking...
+2025-08-21 05:04:03,921 - INFO - Use pytorch device: mps
+2025-08-21 05:04:04,850 - INFO - ✅ Loaded cross-encoder reranking model
+2025-08-21 05:04:05,008 - INFO - 🔍 Reranked 3 documents -> 1 relevant (threshold=0.0)
+2025-08-21 05:04:05,008 - INFO - ✅ Document reranking test passed - 1 documents reranked
+2025-08-21 05:04:05,008 - INFO - 🔍 Testing Query Enhancement...
+2025-08-21 05:04:05,010 - INFO - 🔧 Enhancing query: mi treatment
+2025-08-21 05:04:05,012 - INFO - ✅ Enhanced query: (((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title]) OR (((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title/Abstract])
+2025-08-21 05:04:05,013 - INFO - 📊 Detected intents: ['treatment']
+2025-08-21 05:04:05,013 - INFO -   'mi treatment' -> '(((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title]) OR (((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title/Abstract])'
+2025-08-21 05:04:05,013 - INFO - 🔧 Enhancing query: copd symptoms
+2025-08-21 05:04:05,013 - INFO - ✅ Enhanced query: (((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title]) OR (((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title/Abstract])
+2025-08-21 05:04:05,013 - INFO - 📊 Detected intents: ['diagnosis']
+2025-08-21 05:04:05,013 - INFO -   'copd symptoms' -> '(((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title]) OR (((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title/Abstract])'
+2025-08-21 05:04:05,013 - INFO - 🔧 Enhancing query: heart attack prevention
+2025-08-21 05:04:05,013 - INFO - ✅ Enhanced query: (((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title]) OR (((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title/Abstract])
+2025-08-21 05:04:05,013 - INFO - 📊 Detected intents: ['prevention']
+2025-08-21 05:04:05,013 - INFO -   'heart attack prevention' -> '(((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title]) OR (((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title/Abstract])'
+2025-08-21 05:04:05,013 - INFO - ✅ Query enhancement test passed
+2025-08-21 05:04:05,013 - INFO - 🧠 Testing Knowledge Graph Integration...
+2025-08-21 05:04:05,757 - WARNING - ⚠️ spaCy model not found, using rule-based extraction
+2025-08-21 05:04:05,759 - WARNING - ⚠️ spaCy model not found, using rule-based extraction
+2025-08-21 05:04:05,759 - INFO - Building knowledge graph from 1 articles
+2025-08-21 05:04:05,761 - INFO - Knowledge graph built with 7 entities and 0 relationships
+2025-08-21 05:04:05,761 - INFO - ✅ Knowledge graph integration test passed
+2025-08-21 05:04:05,761 - INFO - 🔍 Testing Enhanced Retrieval...
+2025-08-21 05:04:06,138 - ERROR - ❌ Enhanced retrieval test failed: invalid syntax (manager.py, line 231)
+2025-08-21 05:04:06,139 - INFO - 🔧 Testing Phase 3: Advanced Features
+2025-08-21 05:04:06,139 - INFO - 🔄 Testing Feedback Loop System...
+2025-08-21 05:04:06,139 - INFO - ✅ Loaded feedback data with 2 queries
+2025-08-21 05:04:06,140 - INFO - 📊 Recorded query result: diabetes treatment (1 articles)
+2025-08-21 05:04:06,140 - INFO - ✅ Recorded feedback for PMID 12345: relevant
+2025-08-21 05:04:06,140 - INFO - 🔧 Adjusted thresholds based on satisfaction 4: no_adjustment
+2025-08-21 05:04:06,140 - INFO - ✅ Recorded query satisfaction: 4/5.0
+2025-08-21 05:04:06,140 - INFO - ✅ Feedback loop test passed
+2025-08-21 05:04:06,140 - INFO - 🔗 Testing Connection Pooling...
+2025-08-21 05:04:06,142 - ERROR - ❌ Connection pooling test failed: invalid syntax (manager.py, line 231)
+2025-08-21 05:04:06,142 - INFO - 🧠 Testing Memory Management...
+2025-08-21 05:04:06,143 - ERROR - ❌ Memory management test failed: invalid syntax (manager.py, line 231)
+2025-08-21 05:04:06,143 - INFO - 📊 Testing Performance Monitoring...
+2025-08-21 05:04:06,144 - ERROR - ❌ Performance monitoring test failed: invalid syntax (manager.py, line 231)
+2025-08-21 05:04:06,144 - INFO - 📋 Generating Test Summary...
+2025-08-21 05:04:06,144 - INFO - 📊 Test Summary:
+2025-08-21 05:04:06,144 - INFO -    Total Tests: 8
+2025-08-21 05:04:06,144 - INFO -    Passed: 4
+2025-08-21 05:04:06,144 - INFO -    Failed: 4
+2025-08-21 05:04:06,144 - INFO -    Success Rate: 50.0%
+2025-08-21 05:04:06,144 - INFO - 
+PHASE2 Results:
+2025-08-21 05:04:06,144 - INFO -    ✅ document_reranking: passed
+2025-08-21 05:04:06,145 - INFO -    ✅ query_enhancement: passed
+2025-08-21 05:04:06,145 - INFO -    ✅ knowledge_graph: passed
+2025-08-21 05:04:06,145 - INFO -    ❌ enhanced_retrieval: failed
+2025-08-21 05:04:06,145 - INFO - 
+PHASE3 Results:
+2025-08-21 05:04:06,145 - INFO -    ✅ feedback_loop: passed
+2025-08-21 05:04:06,145 - INFO -    ❌ connection_pooling: failed
+2025-08-21 05:04:06,145 - INFO -    ❌ memory_management: failed
+2025-08-21 05:04:06,145 - INFO -    ❌ performance_monitoring: failed
+2025-08-21 05:04:06,145 - INFO - 💾 Test results saved to: phase2_phase3_test_results_20250821_050406.json
+2025-08-21 05:04:06,145 - INFO - ✅ All Phase 2 & Phase 3 tests completed!
+2025-08-21 05:06:07,899 - INFO - 🚀 Starting Phase 2 & Phase 3 Integration Tests
+2025-08-21 05:06:07,900 - INFO - 🔍 Testing Phase 2: Quality Enhancement Features
+2025-08-21 05:06:07,900 - INFO - 📊 Testing Document Reranking...
+2025-08-21 05:06:13,664 - INFO - Use pytorch device: mps
+2025-08-21 05:06:14,643 - INFO - ✅ Loaded cross-encoder reranking model
+2025-08-21 05:06:14,781 - INFO - 🔍 Reranked 3 documents -> 1 relevant (threshold=0.0)
+2025-08-21 05:06:14,781 - INFO - ✅ Document reranking test passed - 1 documents reranked
+2025-08-21 05:06:14,781 - INFO - 🔍 Testing Query Enhancement...
+2025-08-21 05:06:14,783 - INFO - 🔧 Enhancing query: mi treatment
+2025-08-21 05:06:14,785 - INFO - ✅ Enhanced query: (((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title]) OR (((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title/Abstract])
+2025-08-21 05:06:14,786 - INFO - 📊 Detected intents: ['treatment']
+2025-08-21 05:06:14,786 - INFO -   'mi treatment' -> '(((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title]) OR (((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title/Abstract])'
+2025-08-21 05:06:14,786 - INFO - 🔧 Enhancing query: copd symptoms
+2025-08-21 05:06:14,786 - INFO - ✅ Enhanced query: (((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title]) OR (((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title/Abstract])
+2025-08-21 05:06:14,786 - INFO - 📊 Detected intents: ['diagnosis']
+2025-08-21 05:06:14,786 - INFO -   'copd symptoms' -> '(((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title]) OR (((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title/Abstract])'
+2025-08-21 05:06:14,786 - INFO - 🔧 Enhancing query: heart attack prevention
+2025-08-21 05:06:14,786 - INFO - ✅ Enhanced query: (((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title]) OR (((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title/Abstract])
+2025-08-21 05:06:14,786 - INFO - 📊 Detected intents: ['prevention']
+2025-08-21 05:06:14,786 - INFO -   'heart attack prevention' -> '(((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title]) OR (((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title/Abstract])'
+2025-08-21 05:06:14,786 - INFO - ✅ Query enhancement test passed
+2025-08-21 05:06:14,786 - INFO - 🧠 Testing Knowledge Graph Integration...
+2025-08-21 05:06:15,489 - WARNING - ⚠️ spaCy model not found, using rule-based extraction
+2025-08-21 05:06:15,492 - WARNING - ⚠️ spaCy model not found, using rule-based extraction
+2025-08-21 05:06:15,492 - INFO - Building knowledge graph from 1 articles
+2025-08-21 05:06:15,494 - INFO - Knowledge graph built with 7 entities and 0 relationships
+2025-08-21 05:06:15,494 - INFO - ✅ Knowledge graph integration test passed
+2025-08-21 05:06:15,494 - INFO - 🔍 Testing Enhanced Retrieval...
+2025-08-21 05:06:15,874 - ERROR - ❌ Enhanced retrieval test failed: invalid syntax (manager.py, line 233)
+2025-08-21 05:06:15,874 - INFO - 🔧 Testing Phase 3: Advanced Features
+2025-08-21 05:06:15,874 - INFO - 🔄 Testing Feedback Loop System...
+2025-08-21 05:06:15,875 - INFO - ✅ Loaded feedback data with 3 queries
+2025-08-21 05:06:15,876 - INFO - 📊 Recorded query result: diabetes treatment (1 articles)
+2025-08-21 05:06:15,876 - INFO - ✅ Recorded feedback for PMID 12345: relevant
+2025-08-21 05:06:15,876 - INFO - 🔧 Adjusted thresholds based on satisfaction 4: no_adjustment
+2025-08-21 05:06:15,876 - INFO - ✅ Recorded query satisfaction: 4/5.0
+2025-08-21 05:06:15,876 - INFO - ✅ Feedback loop test passed
+2025-08-21 05:06:15,876 - INFO - 🔗 Testing Connection Pooling...
+2025-08-21 05:06:15,878 - ERROR - ❌ Connection pooling test failed: invalid syntax (manager.py, line 233)
+2025-08-21 05:06:15,878 - INFO - 🧠 Testing Memory Management...
+2025-08-21 05:06:15,879 - ERROR - ❌ Memory management test failed: invalid syntax (manager.py, line 233)
+2025-08-21 05:06:15,879 - INFO - 📊 Testing Performance Monitoring...
+2025-08-21 05:06:15,880 - ERROR - ❌ Performance monitoring test failed: invalid syntax (manager.py, line 233)
+2025-08-21 05:06:15,880 - INFO - 📋 Generating Test Summary...
+2025-08-21 05:06:15,880 - INFO - 📊 Test Summary:
+2025-08-21 05:06:15,880 - INFO -    Total Tests: 8
+2025-08-21 05:06:15,880 - INFO -    Passed: 4
+2025-08-21 05:06:15,880 - INFO -    Failed: 4
+2025-08-21 05:06:15,880 - INFO -    Success Rate: 50.0%
+2025-08-21 05:06:15,880 - INFO - 
+PHASE2 Results:
+2025-08-21 05:06:15,880 - INFO -    ✅ document_reranking: passed
+2025-08-21 05:06:15,880 - INFO -    ✅ query_enhancement: passed
+2025-08-21 05:06:15,881 - INFO -    ✅ knowledge_graph: passed
+2025-08-21 05:06:15,881 - INFO -    ❌ enhanced_retrieval: failed
+2025-08-21 05:06:15,881 - INFO - 
+PHASE3 Results:
+2025-08-21 05:06:15,881 - INFO -    ✅ feedback_loop: passed
+2025-08-21 05:06:15,881 - INFO -    ❌ connection_pooling: failed
+2025-08-21 05:06:15,881 - INFO -    ❌ memory_management: failed
+2025-08-21 05:06:15,881 - INFO -    ❌ performance_monitoring: failed
+2025-08-21 05:06:15,881 - INFO - 💾 Test results saved to: phase2_phase3_test_results_20250821_050615.json
+2025-08-21 05:06:15,881 - INFO - ✅ All Phase 2 & Phase 3 tests completed!
+2025-08-21 05:07:00,601 - INFO - 🚀 Starting Phase 2 & Phase 3 Integration Tests
+2025-08-21 05:07:00,601 - INFO - 🔍 Testing Phase 2: Quality Enhancement Features
+2025-08-21 05:07:00,601 - INFO - 📊 Testing Document Reranking...
+2025-08-21 05:07:06,087 - INFO - Use pytorch device: mps
+2025-08-21 05:07:06,982 - INFO - ✅ Loaded cross-encoder reranking model
+2025-08-21 05:07:07,094 - INFO - 🔍 Reranked 3 documents -> 1 relevant (threshold=0.0)
+2025-08-21 05:07:07,094 - INFO - ✅ Document reranking test passed - 1 documents reranked
+2025-08-21 05:07:07,094 - INFO - 🔍 Testing Query Enhancement...
+2025-08-21 05:07:07,096 - INFO - 🔧 Enhancing query: mi treatment
+2025-08-21 05:07:07,098 - INFO - ✅ Enhanced query: (((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title]) OR (((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title/Abstract])
+2025-08-21 05:07:07,098 - INFO - 📊 Detected intents: ['treatment']
+2025-08-21 05:07:07,098 - INFO -   'mi treatment' -> '(((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title]) OR (((myocardial infarction treatment) OR ("therapy")) AND ("therapy" OR "treatment outcome")[Title/Abstract])'
+2025-08-21 05:07:07,098 - INFO - 🔧 Enhancing query: copd symptoms
+2025-08-21 05:07:07,098 - INFO - ✅ Enhanced query: (((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title]) OR (((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title/Abstract])
+2025-08-21 05:07:07,098 - INFO - 📊 Detected intents: ['diagnosis']
+2025-08-21 05:07:07,098 - INFO -   'copd symptoms' -> '(((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title]) OR (((chronic obstructive pulmonary disease symptoms) OR ("signs and symptoms")) AND ("diagnosis" OR "diagnostic techniques")[Title/Abstract])'
+2025-08-21 05:07:07,098 - INFO - 🔧 Enhancing query: heart attack prevention
+2025-08-21 05:07:07,099 - INFO - ✅ Enhanced query: (((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title]) OR (((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title/Abstract])
+2025-08-21 05:07:07,099 - INFO - 📊 Detected intents: ['prevention']
+2025-08-21 05:07:07,099 - INFO -   'heart attack prevention' -> '(((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title]) OR (((heart attack prevention) OR ("myocardial infarction" OR "prevention and control")) AND ("prevention and control" OR "risk factors")[Title/Abstract])'
+2025-08-21 05:07:07,099 - INFO - ✅ Query enhancement test passed
+2025-08-21 05:07:07,099 - INFO - 🧠 Testing Knowledge Graph Integration...
+2025-08-21 05:07:07,859 - WARNING - ⚠️ spaCy model not found, using rule-based extraction
+2025-08-21 05:07:07,861 - WARNING - ⚠️ spaCy model not found, using rule-based extraction
+2025-08-21 05:07:07,861 - INFO - Building knowledge graph from 1 articles
+2025-08-21 05:07:07,863 - INFO - Knowledge graph built with 7 entities and 0 relationships
+2025-08-21 05:07:07,863 - INFO - ✅ Knowledge graph integration test passed
+2025-08-21 05:07:07,863 - INFO - 🔍 Testing Enhanced Retrieval...
+2025-08-21 05:07:08,518 - INFO - ✅ Enhanced retrieval components available
+2025-08-21 05:07:08,518 - INFO - 🔧 Testing Phase 3: Advanced Features
+2025-08-21 05:07:08,518 - INFO - 🔄 Testing Feedback Loop System...
+2025-08-21 05:07:08,519 - INFO - ✅ Loaded feedback data with 4 queries
+2025-08-21 05:07:08,519 - INFO - 📊 Recorded query result: diabetes treatment (1 articles)
+2025-08-21 05:07:08,519 - INFO - ✅ Recorded feedback for PMID 12345: relevant
+2025-08-21 05:07:08,519 - INFO - 🔧 Adjusted thresholds based on satisfaction 4: no_adjustment
+2025-08-21 05:07:08,520 - INFO - ✅ Recorded query satisfaction: 4/5.0
+2025-08-21 05:07:08,520 - INFO - ✅ Feedback loop test passed
+2025-08-21 05:07:08,520 - INFO - 🔗 Testing Connection Pooling...
+2025-08-21 05:07:08,731 - INFO - ✅ Connection pooling test passed
+2025-08-21 05:07:08,731 - INFO - 🧠 Testing Memory Management...
+2025-08-21 05:07:09,733 - INFO - ✅ Memory management test passed
+2025-08-21 05:07:09,734 - INFO - 📊 Testing Performance Monitoring...
+2025-08-21 05:07:09,835 - INFO - ✅ Performance monitoring test passed
+2025-08-21 05:07:09,835 - INFO - 📋 Generating Test Summary...
+2025-08-21 05:07:09,836 - INFO - 📊 Test Summary:
+2025-08-21 05:07:09,836 - INFO -    Total Tests: 8
+2025-08-21 05:07:09,836 - INFO -    Passed: 8
+2025-08-21 05:07:09,836 - INFO -    Failed: 0
+2025-08-21 05:07:09,836 - INFO -    Success Rate: 100.0%
+2025-08-21 05:07:09,836 - INFO - 
+PHASE2 Results:
+2025-08-21 05:07:09,836 - INFO -    ✅ document_reranking: passed
+2025-08-21 05:07:09,836 - INFO -    ✅ query_enhancement: passed
+2025-08-21 05:07:09,836 - INFO -    ✅ knowledge_graph: passed
+2025-08-21 05:07:09,836 - INFO -    ✅ enhanced_retrieval: passed
+2025-08-21 05:07:09,836 - INFO - 
+PHASE3 Results:
+2025-08-21 05:07:09,836 - INFO -    ✅ feedback_loop: passed
+2025-08-21 05:07:09,836 - INFO -    ✅ connection_pooling: passed
+2025-08-21 05:07:09,836 - INFO -    ✅ memory_management: passed
+2025-08-21 05:07:09,836 - INFO -    ✅ performance_monitoring: passed
+2025-08-21 05:07:09,837 - INFO - 💾 Test results saved to: phase2_phase3_test_results_20250821_050709.json
+2025-08-21 05:07:09,837 - INFO - ✅ All Phase 2 & Phase 3 tests completed!

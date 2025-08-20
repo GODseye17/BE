@@ -227,6 +227,9 @@ class RelevanceTracker:
             self.current_thresholds['min_score'] = min(0.6, self.current_thresholds['min_score'] + 0.05)
             self.current_thresholds['high_relevance'] = min(0.9, self.current_thresholds['high_relevance'] + 0.05)
             adjustment_record['adjustment'] = 'raised_thresholds'
+        else:
+            # Medium satisfaction - no adjustment needed
+            adjustment_record['adjustment'] = 'no_adjustment'
         
         adjustment_record['new_thresholds'] = self.current_thresholds.copy()
         

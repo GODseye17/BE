@@ -1,1 +1,40 @@
 .env
+
+# Logs
+*.log
+logs/
+phase2_phase3_test.log
+test_*.log
+
+# Test results
+test_results/
+phase2_phase3_test_results_*.json
+*_test_results_*.json
+
+# Cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# Temporary files
+*.tmp
+*.temp

@@ -231,12 +231,39 @@ class QueryEnhancer:
         
         return optimized_query
     
-    def enhance_query(self, query: str) -> Dict[str, Any]:
-        """Main method to enhance query with all improvements"""
+    def enhance_query(self, query: str) -> str:
+        """Main method to enhance query with all improvements - returns enhanced query string"""
         if not query:
-            return {'original_query': query, 'enhanced_query': query, 'intents': {}}
+            return query
         
         logger.info(f"🔧 Enhancing query: {query}")
+        
+        # Step 1: Expand acronyms
+        expanded_query = self.expand_acronyms(query)
+        
+        # Step 2: Add synonyms
+        synonym_query = self.add_synonyms(expanded_query)
+        
+        # Step 3: Detect intent
+        intents = self.detect_intent(query)
+        
+        # Step 4: Build optimized query
+        optimized_query = self._build_optimal_query(synonym_query, intents)
+        
+        # Add field restrictions for better precision
+        if not re.search(r'\[Title\]|\[Title/Abstract\]', optimized_query):
+            # Add title boosting
+            optimized_query = f'({optimized_query}[Title]) OR ({optimized_query}[Title/Abstract])'
+        
+        logger.info(f"✅ Enhanced query: {optimized_query}")
+        logger.info(f"📊 Detected intents: {list(intents.keys())}")
+        
+        return optimized_query
+    
+    def enhance_query_detailed(self, query: str) -> Dict[str, Any]:
+        """Enhanced query method that returns detailed information"""
+        if not query:
+            return {'original_query': query, 'enhanced_query': query, 'intents': {}}
         
         # Step 1: Expand acronyms
         expanded_query = self.expand_acronyms(query)
@@ -265,8 +292,5 @@ class QueryEnhancer:
                 'mesh_terms_added': optimized_query != synonym_query
             }
         }
-        
-        logger.info(f"✅ Enhanced query: {optimized_query}")
-        logger.info(f"📊 Detected intents: {list(intents.keys())}")
         
         return result

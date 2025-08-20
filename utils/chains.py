@@ -3,6 +3,7 @@ Conversation chain management utilities with unified prompt
 """
 import logging
 import re
+import time
 from typing import Optional
 from langchain.chains import ConversationalRetrievalChain, LLMChain
 from langchain.memory import ConversationBufferMemory
@@ -33,23 +34,67 @@ def check_topic_fetch_status(topic_id: str) -> str:
     background_tasks_status = globals_dict['background_tasks_status']
     supabase = globals_dict['supabase']
     
+    # Cache for topic status to avoid repeated database queries
+    if not hasattr(check_topic_fetch_status, '_status_cache'):
+        check_topic_fetch_status._status_cache = {}
+    
+    # Check cache first
+    if topic_id in check_topic_fetch_status._status_cache:
+        cached_status = check_topic_fetch_status._status_cache[topic_id]
+        # Cache for 30 seconds to avoid too frequent DB queries
+        if time.time() - cached_status.get('timestamp', 0) < 30:
+            return cached_status['status']
+        else:
+            # Remove expired cache entry
+            del check_topic_fetch_status._status_cache[topic_id]
+    
     # First check our internal background task status
     if topic_id in background_tasks_status:
-        return background_tasks_status[topic_id]
+        status = background_tasks_status[topic_id]
+        # Cache the result
+        check_topic_fetch_status._status_cache[topic_id] = {
+            'status': status,
+            'timestamp': time.time()
+        }
+        return status
     
     # Then check in Supabase
     if supabase:
         try:
             result = supabase.table("topics").select("status").eq("id", topic_id).execute()
             if result.data and len(result.data) > 0:
-                return result.data[0]["status"]
-            return "not_found"
+                status = result.data[0]["status"]
+                # Cache the result
+                check_topic_fetch_status._status_cache[topic_id] = {
+                    'status': status,
+                    'timestamp': time.time()
+                }
+                return status
+            status = "not_found"
+            # Cache the result
+            check_topic_fetch_status._status_cache[topic_id] = {
+                'status': status,
+                'timestamp': time.time()
+            }
+            return status
         except Exception as e:
             logger.error(f"Error checking topic status: {str(e)}")
-            return f"error: {str(e)}"
+            status = f"error: {str(e)}"
+            # Cache the result
+            check_topic_fetch_status._status_cache[topic_id] = {
+                'status': status,
+                'timestamp': time.time()
+            }
+            return status
     else:
         logger.error("Supabase client not initialized")
-        return "database_error"
+        status = "database_error"
+        # Cache the result
+        check_topic_fetch_status._status_cache[topic_id] = {
+            'status': status,
+            'timestamp': time.time()
+        }
+        return status
 
 def create_contextual_compression_retriever(base_retriever, llm, query: str):
     """Create a retriever with contextual compression for better relevance"""
@@ -88,10 +133,18 @@ def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
         from knowledge_graph import MedicalKnowledgeGraph, GraphRetriever
         from feedback.relevance_tracker import RelevanceTracker
         
-        # Initialize components
-        reranker = RelevanceReranker()
-        query_enhancer = QueryEnhancer()
-        feedback_tracker = RelevanceTracker()
+        # Initialize components (singleton pattern for performance)
+        if not hasattr(get_or_create_chain, '_reranker'):
+            get_or_create_chain._reranker = RelevanceReranker()
+        if not hasattr(get_or_create_chain, '_query_enhancer'):
+            get_or_create_chain._query_enhancer = QueryEnhancer()
+        if not hasattr(get_or_create_chain, '_feedback_tracker'):
+            get_or_create_chain._feedback_tracker = RelevanceTracker()
+        
+        # Use singleton instances
+        reranker = get_or_create_chain._reranker
+        query_enhancer = get_or_create_chain._query_enhancer
+        feedback_tracker = get_or_create_chain._feedback_tracker
         
         # Initialize knowledge graph if not exists
         if not hasattr(get_or_create_chain, '_knowledge_graphs'):
@@ -141,7 +194,12 @@ def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
                 )
                 
                 # Track query for feedback
-                self.feedback_tracker.track_query(query, topic_id, len(reranked_dicts))
+                self.feedback_tracker.record_query_result(
+                    query=query,
+                    topic_id=topic_id,
+                    articles=[{"pubmed_id": doc.get('metadata', {}).get('pmid', 'unknown')} for doc in reranked_dicts],
+                    relevance_scores=[doc.get('rerank_score', 0.0) for doc in reranked_dicts]
+                )
                 
                 # Convert back to Document objects
                 from langchain.docstore.document import Document

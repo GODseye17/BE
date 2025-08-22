@@ -1,9 +1,14 @@
 """
-Query Enhancement for PubMed Searches
+Query Enhancement for PubMed Searches with Advanced Optimization and Caching
 """
 import logging
 import re
-from typing import List, Dict, Any, Optional
+import hashlib
+import time
+from functools import lru_cache
+from typing import List, Dict, Any, Optional, Tuple
+from collections import OrderedDict
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -294,3 +299,296 @@ class QueryEnhancer:
         }
         
         return result
+
+
+class QueryOptimizer:
+    """Advanced Query Optimizer with LRU Cache and Semantic Similarity Matching"""
+    
+    def __init__(self, cache_size: int = 1000, similarity_threshold: float = 0.85, cache_ttl: int = 86400):
+        """
+        Initialize QueryOptimizer
+        
+        Args:
+            cache_size: Maximum number of cached queries
+            similarity_threshold: Semantic similarity threshold for cache hits
+            cache_ttl: Cache time-to-live in seconds (default: 24 hours)
+        """
+        self.cache_size = cache_size
+        self.similarity_threshold = similarity_threshold
+        self.cache_ttl = cache_ttl
+        
+        # LRU cache for query results
+        self.query_cache = OrderedDict()
+        self.cache_metadata = {}  # Store timestamps and fingerprints
+        
+        # Initialize query enhancer
+        self.query_enhancer = QueryEnhancer()
+        
+        # Semantic similarity cache
+        self.similarity_cache = {}
+        
+        # Performance tracking
+        self.cache_hits = 0
+        self.cache_misses = 0
+        self.total_optimizations = 0
+        
+        logger.info(f"🧠 QueryOptimizer initialized: cache_size={cache_size}, threshold={similarity_threshold}")
+    
+    def _get_query_fingerprint(self, query: str) -> str:
+        """Generate unique fingerprint for query"""
+        # Normalize query for fingerprinting
+        normalized = query.lower().strip()
+        normalized = re.sub(r'\s+', ' ', normalized)  # Normalize whitespace
+        
+        # Create hash
+        return hashlib.md5(normalized.encode()).hexdigest()
+    
+    def _calculate_semantic_similarity(self, query1: str, query2: str) -> float:
+        """
+        Calculate semantic similarity between two queries
+        Uses simple word overlap for now, can be enhanced with embeddings
+        """
+        # Create cache key
+        cache_key = f"{self._get_query_fingerprint(query1)}_{self._get_query_fingerprint(query2)}"
+        
+        if cache_key in self.similarity_cache:
+            return self.similarity_cache[cache_key]
+        
+        # Simple word-based similarity (can be enhanced with sentence embeddings)
+        words1 = set(query1.lower().split())
+        words2 = set(query2.lower().split())
+        
+        # Remove common stopwords
+        stopwords = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were'}
+        words1 = words1 - stopwords
+        words2 = words2 - stopwords
+        
+        if not words1 or not words2:
+            similarity = 0.0
+        else:
+            # Jaccard similarity
+            intersection = len(words1 & words2)
+            union = len(words1 | words2)
+            similarity = intersection / union if union > 0 else 0.0
+        
+        # Cache the result
+        self.similarity_cache[cache_key] = similarity
+        
+        # Limit similarity cache size
+        if len(self.similarity_cache) > 10000:
+            # Remove oldest entries
+            keys_to_remove = list(self.similarity_cache.keys())[:1000]
+            for key in keys_to_remove:
+                del self.similarity_cache[key]
+        
+        return similarity
+    
+    def _is_cache_valid(self, timestamp: float) -> bool:
+        """Check if cache entry is still valid"""
+        return time.time() - timestamp < self.cache_ttl
+    
+    def _find_similar_cached_query(self, query: str) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """Find semantically similar cached query"""
+        query_fingerprint = self._get_query_fingerprint(query)
+        
+        # First try exact match
+        if query_fingerprint in self.cache_metadata:
+            metadata = self.cache_metadata[query_fingerprint]
+            if self._is_cache_valid(metadata['timestamp']):
+                if query_fingerprint in self.query_cache:
+                    # Move to end (LRU update)
+                    result = self.query_cache.pop(query_fingerprint)
+                    self.query_cache[query_fingerprint] = result
+                    return query_fingerprint, result
+        
+        # Try semantic similarity matching
+        for cached_fingerprint, cached_result in self.query_cache.items():
+            metadata = self.cache_metadata.get(cached_fingerprint, {})
+            
+            # Skip if cache entry is expired
+            if not self._is_cache_valid(metadata.get('timestamp', 0)):
+                continue
+            
+            # Calculate similarity with original query
+            original_query = metadata.get('original_query', '')
+            similarity = self._calculate_semantic_similarity(query, original_query)
+            
+            if similarity >= self.similarity_threshold:
+                # Move to end (LRU update)
+                result = self.query_cache.pop(cached_fingerprint)
+                self.query_cache[cached_fingerprint] = result
+                
+                # Update result to indicate cache hit
+                result = result.copy()
+                result['cached'] = True
+                result['cache_similarity'] = similarity
+                result['cache_hit_type'] = 'semantic'
+                
+                logger.info(f"🎯 Semantic cache hit: similarity={similarity:.3f} for query: {query[:50]}...")
+                return cached_fingerprint, result
+        
+        return None
+    
+    def _cleanup_expired_cache(self):
+        """Remove expired cache entries"""
+        current_time = time.time()
+        expired_keys = []
+        
+        for key, metadata in self.cache_metadata.items():
+            if current_time - metadata['timestamp'] > self.cache_ttl:
+                expired_keys.append(key)
+        
+        for key in expired_keys:
+            if key in self.query_cache:
+                del self.query_cache[key]
+            del self.cache_metadata[key]
+        
+        if expired_keys:
+            logger.info(f"🗑️ Cleaned up {len(expired_keys)} expired cache entries")
+    
+    def _cache_result(self, query: str, result: Dict[str, Any]):
+        """Cache optimization result with LRU eviction"""
+        query_fingerprint = self._get_query_fingerprint(query)
+        
+        # Remove oldest entries if cache is full
+        while len(self.query_cache) >= self.cache_size:
+            oldest_key = next(iter(self.query_cache))
+            del self.query_cache[oldest_key]
+            if oldest_key in self.cache_metadata:
+                del self.cache_metadata[oldest_key]
+        
+        # Add to cache
+        self.query_cache[query_fingerprint] = result
+        self.cache_metadata[query_fingerprint] = {
+            'timestamp': time.time(),
+            'original_query': query,
+            'fingerprint': query_fingerprint
+        }
+        
+        logger.debug(f"💾 Cached optimization result for: {query[:50]}...")
+    
+    def optimize_query(self, query: str) -> Dict[str, Any]:
+        """
+        Optimize query with caching and semantic similarity
+        
+        Args:
+            query: Input query to optimize
+            
+        Returns:
+            Dictionary with optimized query and metadata
+        """
+        if not query:
+            return {'optimized_query': query, 'cached': False}
+        
+        self.total_optimizations += 1
+        
+        # Clean up expired cache entries periodically
+        if self.total_optimizations % 100 == 0:
+            self._cleanup_expired_cache()
+        
+        logger.info(f"🔧 Optimizing query: {query}")
+        
+        # Try to find similar cached query
+        cached_result = self._find_similar_cached_query(query)
+        if cached_result:
+            self.cache_hits += 1
+            fingerprint, result = cached_result
+            logger.info(f"🎯 Cache hit for query: {query[:50]}...")
+            return result
+        
+        # Cache miss - perform optimization
+        self.cache_misses += 1
+        logger.info(f"❌ Cache miss, performing optimization: {query[:50]}...")
+        
+        start_time = time.time()
+        
+        # Use query enhancer for optimization
+        enhanced_result = self.query_enhancer.enhance_query_detailed(query)
+        
+        optimization_time = time.time() - start_time
+        
+        # Create comprehensive result
+        result = {
+            'optimized_query': enhanced_result['enhanced_query'],
+            'original_query': query,
+            'intents': enhanced_result['intents'],
+            'expansions': enhanced_result['expansions'],
+            'optimization_time': optimization_time,
+            'cached': False,
+            'cache_hit_type': 'none',
+            'fingerprint': self._get_query_fingerprint(query)
+        }
+        
+        # Cache the result
+        self._cache_result(query, result)
+        
+        logger.info(f"✅ Query optimized in {optimization_time:.3f}s: {query[:50]}...")
+        return result
+    
+    def enhance_query(self, query: str) -> str:
+        """
+        Enhanced query method that returns just the optimized query string
+        (for compatibility with existing code)
+        """
+        result = self.optimize_query(query)
+        return result.get('optimized_query', query)
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache performance statistics"""
+        total_requests = self.cache_hits + self.cache_misses
+        hit_rate = self.cache_hits / max(total_requests, 1)
+        
+        return {
+            'cache_size': len(self.query_cache),
+            'max_cache_size': self.cache_size,
+            'total_optimizations': self.total_optimizations,
+            'cache_hits': self.cache_hits,
+            'cache_misses': self.cache_misses,
+            'cache_hit_rate': hit_rate,
+            'similarity_threshold': self.similarity_threshold,
+            'cache_ttl': self.cache_ttl,
+            'similarity_cache_size': len(self.similarity_cache)
+        }
+    
+    def clear_cache(self):
+        """Clear all caches"""
+        self.query_cache.clear()
+        self.cache_metadata.clear()
+        self.similarity_cache.clear()
+        logger.info("🗑️ All caches cleared")
+    
+    def set_similarity_threshold(self, threshold: float):
+        """Update similarity threshold"""
+        if 0.0 <= threshold <= 1.0:
+            self.similarity_threshold = threshold
+            logger.info(f"🎯 Similarity threshold updated to {threshold}")
+        else:
+            raise ValueError("Similarity threshold must be between 0.0 and 1.0")
+    
+    def preload_common_queries(self, queries: List[str]):
+        """Preload optimization results for common queries"""
+        logger.info(f"🚀 Preloading {len(queries)} common queries...")
+        
+        for query in queries:
+            if query and query not in [meta['original_query'] for meta in self.cache_metadata.values()]:
+                self.optimize_query(query)
+        
+        logger.info(f"✅ Preloaded {len(queries)} queries into cache")
+
+
+# Global optimizer instance
+_global_optimizer = None
+
+def get_query_optimizer() -> QueryOptimizer:
+    """Get global query optimizer instance"""
+    global _global_optimizer
+    if _global_optimizer is None:
+        _global_optimizer = QueryOptimizer()
+    return _global_optimizer
+
+# Backward compatibility function
+@lru_cache(maxsize=128)
+def enhance_query_cached(query: str) -> str:
+    """Simple cached query enhancement (for backward compatibility)"""
+    enhancer = QueryEnhancer()
+    return enhancer.enhance_query(query)

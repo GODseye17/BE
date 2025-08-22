@@ -18,6 +18,13 @@ from vectorstore.manager import get_vectorstore_retriever
 from utils.prompts import unified_prompt_template
 from config.settings import MAX_CONVERSATIONS
 
+# Import auto-tuning system
+try:
+    from optimization.auto_tuner import get_tuned_parameters
+    AUTO_TUNING_AVAILABLE = True
+except ImportError:
+    AUTO_TUNING_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 class StreamingCallbackHandler(BaseCallbackHandler):
@@ -111,6 +118,17 @@ def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
     llm = globals_dict['llm']
     
     chain_key = f"{topic_id}:{conversation_id}"
+    
+    # Get tuned parameters from auto-tuning system
+    if AUTO_TUNING_AVAILABLE:
+        try:
+            tuned_params = get_tuned_parameters()
+            logger.debug(f"Using tuned parameters: {tuned_params.to_dict()}")
+        except Exception as e:
+            logger.warning(f"Failed to get tuned parameters: {e}")
+            tuned_params = None
+    else:
+        tuned_params = None
    
     # Create memory (reuse if exists)
     existing_chain = conversation_chains.get(chain_key)
@@ -123,8 +141,18 @@ def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
             output_key="answer"
         )
     
-    # Get base retriever
-    base_retriever = get_vectorstore_retriever(topic_id, query)
+    # Get base retriever with tuned parameters
+    if tuned_params:
+        # Use tuned parameters for retrieval
+        base_retriever = get_vectorstore_retriever(
+            topic_id, 
+            query,
+            k=tuned_params.retrieval_k,  # Use tuned retrieval_k
+            similarity_threshold=tuned_params.similarity_threshold  # Use tuned similarity threshold
+        )
+        logger.debug(f"Using tuned retrieval parameters: k={tuned_params.retrieval_k}, threshold={tuned_params.similarity_threshold}")
+    else:
+        base_retriever = get_vectorstore_retriever(topic_id, query)
     
     # Create enhanced retriever with reranking, knowledge graph, and query enhancement
     try:
@@ -188,9 +216,16 @@ def get_or_create_chain(topic_id: str, conversation_id: str, query: str):
                 # Combine documents
                 combined_docs = doc_dicts + graph_docs
                 
-                # Rerank documents
+                # Rerank documents with tuned parameters
+                if tuned_params:
+                    rerank_k = tuned_params.rerank_k
+                    score_threshold = tuned_params.similarity_threshold
+                else:
+                    rerank_k = 10
+                    score_threshold = 0.0
+                
                 reranked_dicts = self.reranker.rerank_documents(
-                    enhanced_query, combined_docs, top_k=10, score_threshold=0.0
+                    enhanced_query, combined_docs, top_k=rerank_k, score_threshold=score_threshold
                 )
                 
                 # Track query for feedback

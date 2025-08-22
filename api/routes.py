@@ -6,9 +6,10 @@ import uuid
 import logging
 import hashlib
 import json
+import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
 
 from models import TopicRequest, QueryRequest, TopicResponse, ChatResponse
@@ -19,6 +20,7 @@ from utils import (
     validate_comprehensive_response, cleanup_topic_files,
     cleanup_conversation_chains, cleanup_old_topics
 )
+from pipeline import process_query_async, get_async_pipeline
 from pubmed.filters import PubMedFilters
 from .dependencies import fetch_data_background
 
@@ -28,15 +30,17 @@ try:
     from utils.connection_pool import ConnectionPool
     from utils.rate_limiter import RateLimiter
     from utils.cache import CacheManager
+    from optimization.auto_tuner import get_auto_tuner, record_query_metrics
     
     # Initialize components
     performance_monitor = PerformanceMonitor()
     connection_pool = ConnectionPool()
     rate_limiter = RateLimiter()
     cache = CacheManager()
+    auto_tuner = get_auto_tuner()
     
     ENHANCED_FEATURES_AVAILABLE = True
-    logger.info("✅ Enhanced features (monitoring, caching, rate limiting) initialized")
+    logger.info("✅ Enhanced features (monitoring, caching, rate limiting, auto-tuning) initialized")
 except Exception as e:
     ENHANCED_FEATURES_AVAILABLE = False
     logger.warning(f"⚠️ Enhanced features not available: {e}")
@@ -78,10 +82,101 @@ def ping():
     background_tasks_status = globals_dict['background_tasks_status']
     return {"status": "alive", "active_tasks": len(background_tasks_status)}
 
+@router.post("/query/compare-processing")
+async def compare_processing_modes(request: QueryRequest):
+    """Compare parallel vs sequential processing performance"""
+    try:
+        # Validate inputs
+        if not request.query or not request.topic_id:
+            raise HTTPException(status_code=400, detail="Query and topic_id are required")
+        
+        # Check topic status
+        status = check_topic_fetch_status(request.topic_id)
+        if status != "completed":
+            raise HTTPException(status_code=422, detail=f"Topic not ready. Status: {status}")
+        
+        conversation_id = request.conversation_id or str(uuid.uuid4())
+        
+        logger.info(f"🔄 Comparing processing modes for query: {request.query}")
+        
+        # Process with parallel pipeline
+        parallel_start = time.time()
+        parallel_result = await process_query_async(
+            query=request.query,
+            topic_id=request.topic_id,
+            conversation_id=conversation_id,
+            use_parallel=True
+        )
+        parallel_time = time.time() - parallel_start
+        
+        # Process with sequential pipeline
+        sequential_start = time.time()
+        sequential_result = await process_query_async(
+            query=request.query,
+            topic_id=request.topic_id,
+            conversation_id=conversation_id,
+            use_parallel=False
+        )
+        sequential_time = time.time() - sequential_start
+        
+        # Calculate speedup
+        speedup = sequential_time / parallel_time if parallel_time > 0 else 1.0
+        
+        comparison = {
+            "query": request.query,
+            "topic_id": request.topic_id,
+            "parallel_processing": {
+                "processing_time": parallel_time,
+                "pipeline_time": parallel_result.processing_time,
+                "cache_hit": parallel_result.cache_hit,
+                "fallback_used": parallel_result.fallback_used,
+                "stages": [
+                    {
+                        "stage": metric.stage.value,
+                        "duration": metric.duration,
+                        "success": metric.success
+                    }
+                    for metric in parallel_result.metrics
+                ]
+            },
+            "sequential_processing": {
+                "processing_time": sequential_time,
+                "pipeline_time": sequential_result.processing_time,
+                "cache_hit": sequential_result.cache_hit,
+                "fallback_used": sequential_result.fallback_used,
+                "stages": [
+                    {
+                        "stage": metric.stage.value,
+                        "duration": metric.duration,
+                        "success": metric.success
+                    }
+                    for metric in sequential_result.metrics
+                ]
+            },
+            "performance_comparison": {
+                "speedup_factor": speedup,
+                "time_saved": sequential_time - parallel_time,
+                "efficiency_gain": f"{((speedup - 1) * 100):.1f}%"
+            }
+        }
+        
+        logger.info(f"✅ Processing comparison complete. Speedup: {speedup:.2f}x")
+        return comparison
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in processing comparison: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error comparing processing modes: {str(e)}")
+
 @router.get("/performance-metrics")
 async def get_performance_metrics():
     """Get performance metrics and system health"""
     try:
+        # Get pipeline metrics
+        pipeline = get_async_pipeline()
+        pipeline_metrics = pipeline.get_performance_metrics()
+        
         if ENHANCED_FEATURES_AVAILABLE:
             metrics = performance_monitor.get_metrics()
             system_metrics = performance_monitor.get_system_metrics()
@@ -89,18 +184,133 @@ async def get_performance_metrics():
             return {
                 "performance_metrics": metrics,
                 "system_health": system_metrics,
+                "pipeline_metrics": pipeline_metrics,
                 "enhanced_features": True
             }
         else:
             return {
                 "performance_metrics": {},
                 "system_health": {},
+                "pipeline_metrics": pipeline_metrics,
                 "enhanced_features": False,
                 "message": "Performance monitoring not available"
             }
     except Exception as e:
         logger.error(f"Error getting performance metrics: {e}")
         raise HTTPException(status_code=500, detail="Error retrieving performance metrics")
+
+@router.get("/auto-tuning/dashboard")
+async def get_auto_tuning_dashboard():
+    """Get auto-tuning system dashboard and performance summary"""
+    try:
+        if not ENHANCED_FEATURES_AVAILABLE:
+            raise HTTPException(status_code=503, detail="Auto-tuning system not available")
+        
+        summary = auto_tuner.get_performance_summary()
+        return {
+            "status": "success",
+            "auto_tuning_summary": summary,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting auto-tuning dashboard: {e}")
+        raise HTTPException(status_code=500, detail="Error retrieving auto-tuning dashboard")
+
+@router.post("/auto-tuning/strategy")
+async def set_optimization_strategy(strategy: str):
+    """Set optimization strategy for auto-tuning system"""
+    try:
+        if not ENHANCED_FEATURES_AVAILABLE:
+            raise HTTPException(status_code=503, detail="Auto-tuning system not available")
+        
+        from optimization.auto_tuner import OptimizationStrategy
+        
+        # Validate strategy
+        try:
+            optimization_strategy = OptimizationStrategy(strategy)
+        except ValueError:
+            valid_strategies = [s.value for s in OptimizationStrategy]
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid strategy. Valid options: {valid_strategies}"
+            )
+        
+        auto_tuner.set_optimization_strategy(optimization_strategy)
+        
+        return {
+            "status": "success",
+            "message": f"Optimization strategy set to: {strategy}",
+            "strategy": strategy
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error setting optimization strategy: {e}")
+        raise HTTPException(status_code=500, detail="Error setting optimization strategy")
+
+@router.post("/auto-tuning/ab-test")
+async def start_ab_test(param_name: str, value_a: Any, value_b: Any, duration: int = 100):
+    """Start A/B test for a parameter"""
+    try:
+        if not ENHANCED_FEATURES_AVAILABLE:
+            raise HTTPException(status_code=503, detail="Auto-tuning system not available")
+        
+        test_id = auto_tuner.ab_test_parameter(param_name, value_a, value_b, duration)
+        
+        return {
+            "status": "success",
+            "message": f"A/B test started for {param_name}",
+            "test_id": test_id,
+            "param_name": param_name,
+            "value_a": value_a,
+            "value_b": value_b,
+            "duration": duration
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error starting A/B test: {e}")
+        raise HTTPException(status_code=500, detail="Error starting A/B test")
+
+@router.get("/auto-tuning/parameters")
+async def get_current_parameters():
+    """Get current tuned parameters"""
+    try:
+        if not ENHANCED_FEATURES_AVAILABLE:
+            raise HTTPException(status_code=503, detail="Auto-tuning system not available")
+        
+        params = auto_tuner.get_current_parameters()
+        return {
+            "status": "success",
+            "parameters": params.to_dict(),
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting current parameters: {e}")
+        raise HTTPException(status_code=500, detail="Error retrieving parameters")
+
+@router.post("/auto-tuning/reset")
+async def reset_parameters():
+    """Reset parameters to defaults"""
+    try:
+        if not ENHANCED_FEATURES_AVAILABLE:
+            raise HTTPException(status_code=503, detail="Auto-tuning system not available")
+        
+        auto_tuner.reset_parameters()
+        
+        return {
+            "status": "success",
+            "message": "Parameters reset to defaults",
+            "parameters": auto_tuner.get_current_parameters().to_dict()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error resetting parameters: {e}")
+        raise HTTPException(status_code=500, detail="Error resetting parameters")
 
 @router.get("/system-health")
 async def get_system_health():
@@ -191,13 +401,20 @@ async def fetch_topic_data(request: TopicRequest, background_tasks: BackgroundTa
 
 @router.post("/query", response_model=ChatResponse)
 async def answer_query(request: QueryRequest, http_request: Request):
-    """Enhanced query endpoint with caching, rate limiting, and performance monitoring"""
+    """Enhanced query endpoint with async pipeline, caching, rate limiting, performance monitoring, and auto-tuning"""
+    start_time = time.time()
+    
     try:
         # Rate limiting (if available)
         if ENHANCED_FEATURES_AVAILABLE:
             client_id = http_request.headers.get("X-Client-ID", http_request.client.host)
             if not await rate_limiter.is_allowed(client_id):
                 raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        
+        # Get tuned parameters from auto-tuning system
+        if ENHANCED_FEATURES_AVAILABLE:
+            tuned_params = auto_tuner.get_current_parameters()
+            logger.debug(f"Using tuned parameters: {tuned_params.to_dict()}")
         
         # Create cache key
         cache_key = f"query_{request.topic_id}_{hashlib.md5(request.query.encode()).hexdigest()}"
@@ -231,51 +448,85 @@ async def answer_query(request: QueryRequest, http_request: Request):
 
         conversation_id = request.conversation_id or str(uuid.uuid4())
 
-        # Set up the chain with enhanced features
-        try:
-            chain = get_or_create_chain(request.topic_id, conversation_id, request.query)
-            if not chain:
-                raise HTTPException(status_code=500, detail="Failed to create conversation chain")
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error setting up conversation chain: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error setting up conversational chain: {str(e)}")
-
-        logger.info(f"Processing query: {request.query}")
+        logger.info(f"🚀 Processing query with async pipeline: {request.query}")
 
         try:
-            # Invoke chain with performance monitoring
+            # Use async pipeline for processing
+            pipeline_result = await process_query_async(
+                query=request.query,
+                topic_id=request.topic_id,
+                conversation_id=conversation_id,
+                use_parallel=True  # Enable parallel processing
+            )
+            
+            # Validate comprehensive responses
+            answer = validate_comprehensive_response(request.query, pipeline_result.answer, request.topic_id)
+
+            # Prepare response
+            response_data = {
+                "response": answer, 
+                "conversation_id": conversation_id,
+                "pipeline_metrics": {
+                    "processing_time": pipeline_result.processing_time,
+                    "cache_hit": pipeline_result.cache_hit,
+                    "fallback_used": pipeline_result.fallback_used,
+                    "stages": [
+                        {
+                            "stage": metric.stage.value,
+                            "duration": metric.duration,
+                            "success": metric.success,
+                            "timeout": metric.timeout
+                        }
+                        for metric in pipeline_result.metrics
+                    ]
+                }
+            }
+            
+            # Cache the result (if available)
             if ENHANCED_FEATURES_AVAILABLE:
-                with performance_monitor.track_performance("chain_invocation"):
-                    result = chain.invoke({"question": request.query})
-            else:
-                result = chain.invoke({"question": request.query})
+                cache.set(cache_key, response_data, expire=3600)  # 1 hour cache
+                logger.info(f"💾 Cached query result for: {request.query[:50]}...")
+
+            # Record metrics for auto-tuning
+            if ENHANCED_FEATURES_AVAILABLE:
+                total_time = time.time() - start_time
                 
-            raw_answer = result.get("answer", "Sorry, I couldn't generate an answer to your question.")
+                # Extract metrics from pipeline result
+                quality_score = 0.8  # Default quality score
+                memory_usage_mb = 0.0
+                cache_hit_rate = 1.0 if pipeline_result.cache_hit else 0.0
+                throughput_queries_per_min = 60.0 / total_time if total_time > 0 else 0.0
+                error_rate = 0.0 if pipeline_result.fallback_used else 0.0
+                
+                # Try to extract more detailed metrics from pipeline stages
+                for metric in pipeline_result.metrics:
+                    if metric.stage.value == "llm_generation":
+                        # Estimate quality based on LLM generation success
+                        quality_score = 0.9 if metric.success else 0.6
+                    elif metric.stage.value == "document_retrieval":
+                        # Estimate memory usage based on document retrieval
+                        memory_usage_mb = min(1000, metric.duration * 100)  # Rough estimate
+                
+                # Record metrics for auto-tuning
+                record_query_metrics(
+                    response_time=total_time,
+                    quality_score=quality_score,
+                    memory_usage_mb=memory_usage_mb,
+                    cache_hit_rate=cache_hit_rate,
+                    throughput_queries_per_min=throughput_queries_per_min,
+                    error_rate=error_rate
+                )
+                
+                logger.debug(f"📊 Auto-tuning metrics recorded: time={total_time:.3f}s, quality={quality_score:.2f}")
             
-            # Post-process to remove any system artifacts
-            from utils.chains import post_process_response
-            answer = post_process_response(raw_answer, request.query)
+            logger.info(f"✅ Query processed in {pipeline_result.processing_time:.3f}s")
+            return response_data
             
         except Exception as e:
-            logger.error(f"Error during chain invocation: {str(e)}")
+            logger.error(f"Error during async pipeline processing: {str(e)}")
             import traceback
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=f"Error processing your question: {str(e)}")
-
-        # Validate comprehensive responses
-        answer = validate_comprehensive_response(request.query, answer, request.topic_id)
-
-        # Prepare response
-        response_data = {"response": answer, "conversation_id": conversation_id}
-        
-        # Cache the result (if available)
-        if ENHANCED_FEATURES_AVAILABLE:
-            cache.set(cache_key, response_data, expire=3600)  # 1 hour cache
-            logger.info(f"💾 Cached query result for: {request.query[:50]}...")
-
-        return response_data
     
     except HTTPException:
         raise
@@ -652,43 +903,6 @@ async def reset_feedback_thresholds():
         raise HTTPException(status_code=500, detail=str(e))
 
 # Enhanced Analysis endpoints
-@router.post("/enhanced-query")
-async def enhanced_query(request: dict):
-    """Enhanced query using knowledge graph and multi-agent system"""
-    try:
-        topic_id = request.get("topic_id")
-        query = request.get("query")
-        conversation_id = request.get("conversation_id")
-        
-        if not all([topic_id, query]):
-            raise HTTPException(status_code=400, detail="topic_id and query are required")
-        
-        # Check topic status
-        status = check_topic_fetch_status(topic_id)
-        if status != "completed":
-            raise HTTPException(status_code=422, detail="Topic data not ready. Please fetch topic data first.")
-        
-        # Use enhanced chain
-        from utils.enhanced_chains import get_or_create_enhanced_chain
-        chain = get_or_create_enhanced_chain(topic_id, conversation_id or str(uuid.uuid4()), query)
-        
-        if not chain:
-            raise HTTPException(status_code=500, detail="Failed to create enhanced chain")
-        
-        # Process query
-        result = await chain.ainvoke({"question": query})
-        
-        return {
-            "status": "success",
-            "answer": result.get("answer", ""),
-            "source_documents": len(result.get("source_documents", [])),
-            "multi_agent_analysis": result.get("multi_agent_analysis", {}),
-            "processing_time": result.get("multi_agent_analysis", {}).get("processing_time", 0)
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in enhanced query: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/build-knowledge-graph/{topic_id}")
 async def build_knowledge_graph(topic_id: str):

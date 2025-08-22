@@ -1,0 +1,12 @@
+{
+  "retrieval_k": 20,
+  "rerank_k": 5,
+  "chunk_size": 500,
+  "similarity_threshold": 0.6,
+  "cache_ttl": 7200,
+  "batch_size": 50,
+  "max_concurrent_queries": 20,
+  "lego_extraction_method": "PPR",
+  "query_optimization_enabled": true,
+  "circuit_breaker_enabled": true
+}
